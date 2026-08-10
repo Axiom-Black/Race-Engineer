@@ -16,13 +16,13 @@ phases — receive AI race-engineering debriefs from a ten-agent system.
    and §5 every work session — if it isn't written there, it didn't happen.**
 2. `TESTING_GATES.md` — the Ring 0–4 promotion contract. Every push to `main`
    clears these gates or it doesn't push.
-3. `ByteCraft_Racing_Phase_Plan.docx` — strategic phasing with acceptance
+3. `docs/ByteCraft_Racing_Phase_Plan.md` — strategic phasing with acceptance
    criteria (Phase 0 done, Phase 1 = current).
-4. `MoTeC_LD_format_findings.md` — byte-level reference for the `.ld`/`.ldx`
-   binary decode. The parsers are grounded in this document; do not "improve"
-   parser logic from assumptions, only from real-file evidence.
-5. `ByteCraft_AI_Cost_Model.docx` — unit economics. Governs all Phase 2 agent
-   work (model tiering, caching, metering).
+4. `docs/MoTeC_LD_format_findings.md` — byte-level reference for the
+   `.ld`/`.ldx` binary decode. The parsers are grounded in this document; do
+   not "improve" parser logic from assumptions, only from real-file evidence.
+5. `docs/ByteCraft_AI_Cost_Model.md` — unit economics. Governs all Phase 2
+   agent work (model tiering, caching, metering).
 
 ## Current mission — Tier 1 Pilot (Phase 1: Launch)
 
@@ -56,14 +56,22 @@ is "done").
 
 1. Scaffold the Vite + React app (port `frontend/` scaffold conventions; keep
    `backend/` in the repo untouched — it is Phase 2 inventory, not dead code).
-2. **Close S1**: create and commit the sanitized `.ld`/`.ldx`/`.svm` fixture
-   triple (strip driver name and any PII; game-world GPS coordinates are fine
-   — they are not real-world locations). This unblocks Ring 0.
-3. **Close S2**: `gh repo create` under the Axiom Black GitHub **organization**
-   (not a personal account), private, push `main`, confirm CI runs Ring 0–1.
-4. Port the in-browser parsers (`.ld`/`.ldx`/`.svm`) from the artifact JSX
-   into proper modules with unit tests mirroring the Python suite
-   (`test_parser_parity.py` defines the parity contract).
+2. **Close S1** — one bundled ask to the colleague holding the real files:
+   (a) the `backend/` FastAPI scaffold zip (the verified Python parsers are
+   the reference implementation), (b) the sanitized `.ld`/`.ldx`/`.svm`
+   fixture triple (verify the true driver-name start offset against the real
+   bytes — see the `0x9E` vs `0xA0` note in the findings doc — then zero the
+   whole field; game-world GPS coordinates are fine), and (c) Python
+   golden-master JSON of the fixture's decoded output. This unblocks Ring 0
+   AND gives the JS parser suite its truth data.
+3. ~~Close S2~~ **Done 9 Aug 2026** — repo pushed to
+   `github.com/Axiom-Black/Race-Engineer`. Remaining: GitHub Actions CI
+   running Ring 0–1, plus branch protection on `main`.
+4. Port the parsers **from the Python reference implementation**, not the
+   artifact JSX — the JSX parser omits the `+ shift` decode term and is not
+   the source of truth (reuse its UI only). Unit tests assert against the
+   committed golden masters (`test_parser_parity.py` defines the contract;
+   in the pilot it is enforced as JS-vs-golden-master).
 5. Create the Supabase project (run cost confirmation first — free tier),
    apply the Phase 1 schema + RLS policies, wire Auth.
 6. Port `ByteCraft_SessionReport.jsx` (Summary / Performance / Instruments /
@@ -97,7 +105,16 @@ is "done").
 
 - `.ld` decode formula: `phys = raw × mul / 10^dec + shift` (shift at record
   offset `0x18`, additive, in physical units). 70 channels, verified ranges.
-- Driver name starts at `0x9E` (not `0xA0`).
+  **The prototype JS parser omits `shift`** — that's why 9 channels (throttle,
+  brake, clutch, steering ×2, G-force ×3, fuel) show `CAL` badges in it.
+- **Open decode questions — settle from the Python source / real bytes only:**
+  (a) the `scale` field at record offset `0x1C` is documented but absent from
+  the formula above — confirm it is always 1 in LMU exports or add it to the
+  formula; (b) datatype category 3 is "float-ish" but the JS reads all 4-byte
+  samples as int32 — confirm whether any LMU channel is genuinely float32.
+- Driver name starts at `0x9E` (not `0xA0`) — **disputed**: the findings doc
+  recorded `0xA0`. Verify against real bytes when sanitizing; scrub the whole
+  field regardless. See the note in `docs/MoTeC_LD_format_findings.md`.
 - `.ldx` carries lap **summary only** (total laps, fastest lap/time) — **no
   per-lap boundary markers**. Lap segmentation comes from the `.ld`'s own
   Beacon / Lap Number channels.

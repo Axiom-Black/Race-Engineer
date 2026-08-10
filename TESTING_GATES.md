@@ -18,7 +18,7 @@
 | **Enforced by** | GitHub Actions CI — rings run as ordered, dependent jobs |
 | **Determinism** | Blocking gates never call the live Anthropic API (canned fixtures only). One live smoke test runs *outside* the gate. |
 | **Guiding source** | *Clean Code* T1–T9 heuristics · *Clean Agile* (acceptance-test-as-done) |
-| **Last updated** | _(update this line every time a gate changes)_ |
+| **Last updated** | 9 Aug 2026 — Ring 1 gains G1.5; Ring 3 re-grounded on Supabase RLS (Clerk superseded); Ring 4 re-grounded as golden-master parity (no Python at pilot runtime) |
 
 ---
 
@@ -28,7 +28,7 @@ No test runs without safe test data, and no unsafe data ever enters the repo. Th
 
 | Gate | Green when… | Rationale |
 | --- | --- | --- |
-| **G0.1 Fixture present** | A sanitized `.ld` / `.ldx` / `.svm` triple is committed and the parser suites can run against it | Unblocks the GitHub push (S2) without shipping driver PII |
+| **G0.1 Fixture present** | A sanitized `.ld` / `.ldx` / `.svm` triple **and its Python-generated golden-master JSON** are committed under `fixtures/` and the parser suites can run against them | Safe test data plus the decode truth it must match, without shipping driver PII |
 | **G0.2 No raw telemetry** | CI scan finds no un-sanitized export: no real driver identifiers, no real-world GPS coordinates outside the game-world coordinate space | The repo must be publishable; telemetry is user data |
 
 **Standing bar:** if Ring 0 is red, CI stops here. Nothing downstream is trustworthy on bad data.
@@ -45,6 +45,7 @@ The three parsers are pure functions with a full suite already passing. This rin
 | **G1.2 Golden master** | Decoding the fixture matches the committed snapshot exactly; any drift fails for review | Catches silent format/parsing regressions (T6 — exhaustively test near bugs) |
 | **G1.3 Quirks asserted** | Ambient/Track Temp flagged `reliable=False`; GTE Tyre Load / Grip Fract / Battery Charge flagged `all_zero`; lap boundaries read from the `.ld` Lap Number channel, **not** `.ldx` | A future change that silently "fixes" a known quirk must trip the gate, not slip through |
 | **G1.4 Boundary conditions** | Empty channels, truncated files, and calibration-pending channels are handled without crashing | T5 — we get the middle right and misjudge the edges |
+| **G1.5 Decode assumptions asserted** | Tripwire tests pin the open format questions to evidence: the `scale` field (record offset `0x1C`) is asserted to be 1 for all 70 channels (or the formula is extended and this gate updated); no datatype-category-3 channel decodes as float32 while being read as int32; the driver-name field offset matches the value verified against real bytes | The `shift`-term omission in the prototype JS parser is the cautionary tale — silent formula simplifications must trip a gate, not ship |
 
 **Standing bar:** no format assumption ships unverified against a real LMU export. The `.svm` guess-vs-reality miss is the cautionary tale — engineering values live in `//`-comments, not the click-index field.
 
@@ -68,24 +69,26 @@ The ring most absent from a mocked prototype. Agent output is non-deterministic,
 
 ## 4 · Ring 3 — Auth & tenancy *(the identity gate)*
 
-Blocks any push touching identity. Depends on Clerk JWT landing (Working Plan S3) — the unlock under everything server-side.
+Blocks any push touching identity. **Identity = Supabase Auth** (Clerk superseded, 9 Aug 2026). In the pilot every user is a driver and isolation is per-driver; the role system (driver / garage-admin / product-admin) arrives in Phase 2 as JWT claims on the same Supabase identity spine.
 
 | Gate | Green when… | Rationale |
 | --- | --- | --- |
-| **G3.1 Role claim** | A signed JWT carries a role claim (driver / garage-admin / product-admin) the API can read | S3 acceptance test |
-| **G3.2 RLS isolation** | As garage-admin, a cross-garage read returns **0 rows at the DB layer** | S4 acceptance test — isolation enforced below the app, not in it |
-| **G3.3 Gating not client-side** | Role gating is enforced server-side; the prototype's client-side gating is not the security boundary | Known prototype issue — must not harden into the real path |
+| **G3.1 RLS everywhere** | Every table and storage bucket carries an RLS policy keyed on `auth.uid()`; no table is readable/writable via the anon key beyond its policy | Working Plan S4 acceptance test — the browser talks to Supabase directly, so RLS **is** the API boundary |
+| **G3.2 RLS isolation** | An authenticated cross-user read (Phase 2: cross-garage) returns **0 rows at the DB layer** | Isolation enforced below the app, not in it |
+| **G3.3 Gating not client-side** | Access control is enforced by RLS/database constraints; client-side checks (including the atomic three-file check) exist for UX only and are never the security boundary | Known prototype issue — must not harden into the real path |
+| **G3.4 Atomicity at the DB** | A session row cannot reach `complete` status unless all three storage paths (`.ld`/`.ldx`/`.svm`) are recorded — enforced by constraint/`ingest_status`, verified by test | Standing bar: three-file upload is atomic, even against a hand-crafted client |
 
 ---
 
-## 5 · Ring 4 — Prototype parity *(catch drift between mock and production)*
+## 5 · Ring 4 — Golden-master parity *(pin the JS port to the verified Python truth)*
 
-The in-browser JS parsers in `ByteCraft_SessionUpload.jsx` are a second implementation of the `.ld` logic. Two implementations drift; this ring pins them together.
+In the pilot the JS parsers are the **only** runtime implementation, but the *verified* implementation is the Python suite (128 tests, real-file grounded). Python doesn't run in CI or production; instead it generates the committed golden-master JSON (Ring 0 G0.1) **once per fixture change**, and this ring pins the JS port to it. Same intent as live two-implementation parity — drift between the port and the verified truth cannot ship — reshaped for a runtime with one implementation. (When the FastAPI service returns in Phase 2, live Python↔JS parity per `backend/tests/test_parser_parity.py` reactivates on top of this.)
 
 | Gate | Green when… | Rationale |
 | --- | --- | --- |
-| **G4.1 Parser parity** | The Python backend parser and the JS port produce identical decoded output on the same fixture | A mock that quietly diverges from production is worse than no mock |
-| **G4.2 Domain classification parity** | Channel → agent-domain mapping matches between prototype and backend | Mis-routing at the edge corrupts agent context |
+| **G4.1 Parser parity** | The JS parsers' decoded output on the fixture matches the committed Python-generated golden masters value-for-value (float tolerance only) | A port that quietly diverges from the verified decode is worse than no port |
+| **G4.2 Domain classification parity** | Channel → agent-domain mapping matches the committed mapping snapshot | Mis-routing at the edge corrupts agent context (dormant consumer in the pilot; the mapping still drives the channel-inventory UI) |
+| **G4.3 Golden masters are fresh** | The committed golden masters were regenerated from the current fixture (hash recorded alongside) | Stale truth data validates nothing |
 
 ---
 

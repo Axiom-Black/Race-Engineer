@@ -12,6 +12,14 @@ channel-for-channel. Node is executed as a subprocess — no Python JS runtime
 needed. The gate SKIPS (does not fail) if Node or the JS entrypoint is absent,
 so it never blocks a backend-only environment, but runs in CI where both exist.
 
+PILOT NOTE (9 Aug 2026): the Tier 1 Pilot has no Python at runtime, so this
+live two-implementation comparison stays dormant (skipif) until the FastAPI
+service returns in Phase 2. The SAME contract is enforced in the pilot as
+Ring 4 golden-master parity: Python decodes the fixture once, the JSON is
+committed under fixtures/, and the frontend test suite (Vitest) asserts the
+JS parsers match it value-for-value. See TESTING_GATES.md §5. Do not edit the
+test logic below; it reactivates unchanged in Phase 2.
+
 ═══════════════════════════════════════════════════════════════════════════
 ADAPTER SHIM — the ONLY thing you edit to wire this to your real code.
 ═══════════════════════════════════════════════════════════════════════════
