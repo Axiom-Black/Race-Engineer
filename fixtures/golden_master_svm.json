@@ -1,0 +1,665 @@
+{
+  "_meta": {
+    "driver_name_offset": "0x9E (confirmed by byte inspection; findings doc said 0xA0 \u2014 see G1.5 note)",
+    "fixture": "cota_gte_sanitized",
+    "formula": "phys = raw * mul / (scale * 10^dec) + shift",
+    "purpose": "Ring 1 G1.2 golden master + Ring 4 G4.1 JS-parity truth. The JS port must reproduce this exactly."
+  },
+  "section_count": 15,
+  "sections": {
+    "BASIC": {},
+    "BODYAERO": {
+      "BrakeDuctRearSetting": {
+        "idx": 3,
+        "value": "Closed"
+      },
+      "BrakeDuctSetting": {
+        "idx": 1,
+        "value": "33%"
+      },
+      "OilRadiatorSetting": {
+        "idx": 0,
+        "value": "No tape"
+      },
+      "WaterRadiatorSetting": {
+        "idx": 0,
+        "value": "No tape"
+      }
+    },
+    "CONTROLS": {
+      "ABSSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "AntilockBrakeSystemMapSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "BrakeMigrationSetting": {
+        "idx": 0,
+        "value": "0.0"
+      },
+      "BrakePressureSetting": {
+        "idx": 28,
+        "value": "68 kgf  (85%)"
+      },
+      "HandbrakePressSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "HandfrontbrakePressSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "RearBrakeSetting": {
+        "idx": 24,
+        "value": "51.0:49.0"
+      },
+      "SteerLockSetting": {
+        "idx": 6,
+        "value": "540 (18) deg"
+      },
+      "TCPowerCutMapSetting": {
+        "idx": 5,
+        "value": "5"
+      },
+      "TCSetting": {
+        "idx": 0,
+        "value": "Available"
+      },
+      "TCSlipAngleMapSetting": {
+        "idx": 8,
+        "value": "8"
+      },
+      "TractionControlMapSetting": {
+        "idx": 6,
+        "value": "6"
+      }
+    },
+    "DRIVELINE": {
+      "DiffCoastSetting": {
+        "idx": 20,
+        "value": "100%"
+      },
+      "DiffPowerSetting": {
+        "idx": 8,
+        "value": "40%"
+      },
+      "DiffPreloadSetting": {
+        "idx": 15,
+        "value": "75 Nm"
+      },
+      "DiffPumpSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "FinalDriveSetting": {
+        "idx": 0,
+        "value": "3.043"
+      },
+      "FrontDiffCoastSetting": {
+        "idx": 0,
+        "value": "0%"
+      },
+      "FrontDiffPowerSetting": {
+        "idx": 0,
+        "value": "0%"
+      },
+      "FrontDiffPreloadSetting": {
+        "idx": 0,
+        "value": "1"
+      },
+      "FrontDiffPumpSetting": {
+        "idx": 0,
+        "value": "0%"
+      },
+      "Gear1Setting": {
+        "idx": 1,
+        "value": "2.692"
+      },
+      "Gear2Setting": {
+        "idx": 1,
+        "value": "2.063"
+      },
+      "Gear3Setting": {
+        "idx": 1,
+        "value": "1.688"
+      },
+      "Gear4Setting": {
+        "idx": 1,
+        "value": "1.421"
+      },
+      "Gear5Setting": {
+        "idx": 1,
+        "value": "1.190"
+      },
+      "Gear6Setting": {
+        "idx": 1,
+        "value": "1.000"
+      },
+      "GearAutoDownShiftSetting": {
+        "idx": 0,
+        "value": "Off"
+      },
+      "GearAutoUpShiftSetting": {
+        "idx": 0,
+        "value": "Off"
+      },
+      "RatioSetSetting": {
+        "idx": 0,
+        "value": "Standard"
+      },
+      "RearSplitSetting": {
+        "idx": 0,
+        "value": "RWD"
+      },
+      "ReverseSetting": {
+        "idx": 0,
+        "value": "2.846"
+      }
+    },
+    "ENGINE": {
+      "ElectricMotorMapSetting": {
+        "idx": 0,
+        "value": ""
+      },
+      "EngineBoostSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "EngineBrakingMapSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "EngineMixtureSetting": {
+        "idx": 1,
+        "value": "Race"
+      },
+      "RegenerationMapSetting": {
+        "idx": 0,
+        "value": "0%"
+      },
+      "RevLimitSetting": {
+        "idx": 0,
+        "value": "7,500"
+      }
+    },
+    "FRONTLEFT": {
+      "BrakeDiscSetting": {
+        "idx": 0,
+        "value": "3.50 cm"
+      },
+      "BrakePadSetting": {
+        "idx": 0,
+        "value": "1"
+      },
+      "CamberSetting": {
+        "idx": 27,
+        "value": "-2.3 deg"
+      },
+      "CompoundSetting": {
+        "idx": 0,
+        "value": "Soft"
+      },
+      "FastBumpSetting": {
+        "idx": 7,
+        "value": "7"
+      },
+      "FastReboundSetting": {
+        "idx": 7,
+        "value": "7"
+      },
+      "PackerSetting": {
+        "idx": 3,
+        "value": "0.3 cm"
+      },
+      "PressureSetting": {
+        "idx": 0,
+        "value": "140 kPa"
+      },
+      "RideHeightSetting": {
+        "idx": 0,
+        "value": "5.0 cm"
+      },
+      "SlowBumpSetting": {
+        "idx": 7,
+        "value": "7"
+      },
+      "SlowReboundSetting": {
+        "idx": 7,
+        "value": "7"
+      },
+      "SpringRubberSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "SpringSetting": {
+        "idx": 5,
+        "value": "220 N/mm"
+      },
+      "TenderSpringSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "TenderTravelSetting": {
+        "idx": 0,
+        "value": "Detached"
+      }
+    },
+    "FRONTRIGHT": {
+      "BrakeDiscSetting": {
+        "idx": 0,
+        "value": "3.50 cm"
+      },
+      "BrakePadSetting": {
+        "idx": 0,
+        "value": "1"
+      },
+      "CamberSetting": {
+        "idx": 27,
+        "value": "-2.3 deg"
+      },
+      "CompoundSetting": {
+        "idx": 0,
+        "value": "Soft"
+      },
+      "FastBumpSetting": {
+        "idx": 7,
+        "value": "7"
+      },
+      "FastReboundSetting": {
+        "idx": 7,
+        "value": "7"
+      },
+      "PackerSetting": {
+        "idx": 3,
+        "value": "0.3 cm"
+      },
+      "PressureSetting": {
+        "idx": 0,
+        "value": "140 kPa"
+      },
+      "RideHeightSetting": {
+        "idx": 0,
+        "value": "5.0 cm"
+      },
+      "SlowBumpSetting": {
+        "idx": 7,
+        "value": "7"
+      },
+      "SlowReboundSetting": {
+        "idx": 7,
+        "value": "7"
+      },
+      "SpringRubberSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "SpringSetting": {
+        "idx": 5,
+        "value": "220 N/mm"
+      },
+      "TenderSpringSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "TenderTravelSetting": {
+        "idx": 0,
+        "value": "Detached"
+      }
+    },
+    "FRONTWING": {
+      "FWSetting": {
+        "idx": 0,
+        "value": "Standard"
+      }
+    },
+    "GENERAL": {
+      "CGHeightSetting": {
+        "idx": 0,
+        "value": "Non-adjustable"
+      },
+      "CGRearSetting": {
+        "idx": 0,
+        "value": "Non-adjustable"
+      },
+      "CGRightSetting": {
+        "idx": 0,
+        "value": "Non-adjustable"
+      },
+      "FuelCapacitySetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "FuelSetting": {
+        "idx": 85,
+        "value": "86.0L (36.4 laps)"
+      },
+      "NumPitstopsSetting": {
+        "idx": 0,
+        "value": ""
+      },
+      "Pitstop1Setting": {
+        "idx": 50,
+        "value": "N/A"
+      },
+      "Pitstop2Setting": {
+        "idx": 50,
+        "value": "N/A"
+      },
+      "Pitstop3Setting": {
+        "idx": 50,
+        "value": "N/A"
+      },
+      "WedgeSetting": {
+        "idx": 0,
+        "value": "N/A"
+      }
+    },
+    "LEFTFENDER": {
+      "FenderFlareSetting": {
+        "idx": 0,
+        "value": "N/A"
+      }
+    },
+    "REARLEFT": {
+      "BrakeDiscSetting": {
+        "idx": 0,
+        "value": "3.20 cm"
+      },
+      "BrakePadSetting": {
+        "idx": 0,
+        "value": "1"
+      },
+      "CamberSetting": {
+        "idx": 33,
+        "value": "-1.2 deg"
+      },
+      "CompoundSetting": {
+        "idx": 0,
+        "value": "Soft"
+      },
+      "FastBumpSetting": {
+        "idx": 3,
+        "value": "3"
+      },
+      "FastReboundSetting": {
+        "idx": 3,
+        "value": "3"
+      },
+      "PackerSetting": {
+        "idx": 15,
+        "value": "1.5 cm"
+      },
+      "PressureSetting": {
+        "idx": 0,
+        "value": "140 kPa"
+      },
+      "RideHeightSetting": {
+        "idx": 17,
+        "value": "6.7 cm"
+      },
+      "SlowBumpSetting": {
+        "idx": 3,
+        "value": "3"
+      },
+      "SlowReboundSetting": {
+        "idx": 3,
+        "value": "3"
+      },
+      "SpringRubberSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "SpringSetting": {
+        "idx": 1,
+        "value": "140 N/mm"
+      },
+      "TenderSpringSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "TenderTravelSetting": {
+        "idx": 0,
+        "value": "Detached"
+      }
+    },
+    "REARRIGHT": {
+      "BrakeDiscSetting": {
+        "idx": 0,
+        "value": "3.20 cm"
+      },
+      "BrakePadSetting": {
+        "idx": 0,
+        "value": "1"
+      },
+      "CamberSetting": {
+        "idx": 33,
+        "value": "-1.2 deg"
+      },
+      "CompoundSetting": {
+        "idx": 0,
+        "value": "Soft"
+      },
+      "FastBumpSetting": {
+        "idx": 3,
+        "value": "3"
+      },
+      "FastReboundSetting": {
+        "idx": 3,
+        "value": "3"
+      },
+      "PackerSetting": {
+        "idx": 15,
+        "value": "1.5 cm"
+      },
+      "PressureSetting": {
+        "idx": 0,
+        "value": "140 kPa"
+      },
+      "RideHeightSetting": {
+        "idx": 17,
+        "value": "6.7 cm"
+      },
+      "SlowBumpSetting": {
+        "idx": 3,
+        "value": "3"
+      },
+      "SlowReboundSetting": {
+        "idx": 3,
+        "value": "3"
+      },
+      "SpringRubberSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "SpringSetting": {
+        "idx": 1,
+        "value": "140 N/mm"
+      },
+      "TenderSpringSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "TenderTravelSetting": {
+        "idx": 0,
+        "value": "Detached"
+      }
+    },
+    "REARWING": {
+      "RWSetting": {
+        "idx": 5,
+        "value": "P6"
+      }
+    },
+    "RIGHTFENDER": {
+      "FenderFlareSetting": {
+        "idx": 0,
+        "value": "N/A"
+      }
+    },
+    "SUSPENSION": {
+      "ChassisAdj00Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj01Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj02Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj03Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj04Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj05Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj06Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj07Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj08Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj09Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj10Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "ChassisAdj11Setting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Front3rdFastBumpSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Front3rdFastReboundSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Front3rdPackerSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Front3rdSlowBumpSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Front3rdSlowReboundSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Front3rdSpringSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "Front3rdTenderSpringSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "Front3rdTenderTravelSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "FrontAntiSwaySetting": {
+        "idx": 6,
+        "value": "P6"
+      },
+      "FrontToeInSetting": {
+        "idx": 15,
+        "value": "-0.06 deg"
+      },
+      "FrontToeOffsetSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "FrontWheelTrackSetting": {
+        "idx": 0,
+        "value": "Non-adjustable"
+      },
+      "LeftCasterSetting": {
+        "idx": 0,
+        "value": "Non-adjustable"
+      },
+      "LeftTrackBarSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Rear3rdFastBumpSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Rear3rdFastReboundSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Rear3rdPackerSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Rear3rdSlowBumpSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Rear3rdSlowReboundSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "Rear3rdSpringSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "Rear3rdTenderSpringSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "Rear3rdTenderTravelSetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "RearAntiSwaySetting": {
+        "idx": 0,
+        "value": "Detached"
+      },
+      "RearToeInSetting": {
+        "idx": 20,
+        "value": "0.23 deg"
+      },
+      "RearToeOffsetSetting": {
+        "idx": 0,
+        "value": "N/A"
+      },
+      "RearWheelTrackSetting": {
+        "idx": 0,
+        "value": "Non-adjustable"
+      },
+      "RightCasterSetting": {
+        "idx": 0,
+        "value": "Non-adjustable"
+      },
+      "RightTrackBarSetting": {
+        "idx": 0,
+        "value": "N/A"
+      }
+    },
+    "_vehicle_class": "Ferrari_488_GTE_EVO GTE WEC2023"
+  }
+}
