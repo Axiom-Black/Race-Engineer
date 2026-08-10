@@ -56,14 +56,11 @@ is "done").
 
 1. Scaffold the Vite + React app (port `frontend/` scaffold conventions; keep
    `backend/` in the repo untouched — it is Phase 2 inventory, not dead code).
-2. **Close S1** — one bundled ask to the colleague holding the real files:
-   (a) the `backend/` FastAPI scaffold zip (the verified Python parsers are
-   the reference implementation), (b) the sanitized `.ld`/`.ldx`/`.svm`
-   fixture triple (verify the true driver-name start offset against the real
-   bytes — see the `0x9E` vs `0xA0` note in the findings doc — then zero the
-   whole field; game-world GPS coordinates are fine), and (c) Python
-   golden-master JSON of the fixture's decoded output. This unblocks Ring 0
-   AND gives the JS parser suite its truth data.
+2. ~~Close S1~~ **Done 10 Aug 2026** — reference bundle received, reviewed,
+   and merged: `backend/` scaffold (Python parsers = reference
+   implementation), sanitized fixture triple, golden-master JSON, and
+   `fixtures/FIXTURE_NOTES.md` resolving all open decode questions.
+   124/124 backend unit tests pass against the fixture.
 3. ~~Close S2~~ **Done 9 Aug 2026** — repo pushed to
    `github.com/Axiom-Black/Race-Engineer`. Remaining: GitHub Actions CI
    running Ring 0–1, plus branch protection on `main`.
@@ -91,9 +88,11 @@ is "done").
   session row is not `complete` until all three storage paths are recorded.
 - **Tenant isolation lives in the database** — RLS policies keyed on
   `auth.uid()`, never application `WHERE` clauses.
-- **Unreliable data is flagged, never hidden** — known-bad LMU channels
-  (Ambient/Track Temp) and known-empty GTE channels (Tyre Load, Grip Fract,
-  Battery) display with explicit SIM/EMPTY flags.
+- **Unreliable data is flagged, never hidden** — known-empty GTE channels
+  (Tyre Load, Grip Fract, Battery) and per-session all-zero channels display
+  with explicit EMPTY flags, rendered in the UI. (Ambient/Track Temp were
+  reclassified 10 Aug 2026 — see Key technical facts — and are no longer
+  flagged; the bar itself is unchanged.)
 - **Specialists never run on Opus** — dormant in the pilot (agent is dark)
   but the invariant tests stay in the repo and must keep passing/skipping.
 - **Standards are audited** — code answers to Clean Code / Clean Architecture
@@ -103,18 +102,24 @@ is "done").
 
 ## Key technical facts (hard-won — do not rediscover)
 
-- `.ld` decode formula: `phys = raw × mul / 10^dec + shift` (shift at record
-  offset `0x18`, additive, in physical units). 70 channels, verified ranges.
-  **The prototype JS parser omits `shift`** — that's why 9 channels (throttle,
-  brake, clutch, steering ×2, G-force ×3, fuel) show `CAL` badges in it.
-- **Open decode questions — settle from the Python source / real bytes only:**
-  (a) the `scale` field at record offset `0x1C` is documented but absent from
-  the formula above — confirm it is always 1 in LMU exports or add it to the
-  formula; (b) datatype category 3 is "float-ish" but the JS reads all 4-byte
-  samples as int32 — confirm whether any LMU channel is genuinely float32.
-- Driver name starts at `0x9E` (not `0xA0`) — **disputed**: the findings doc
-  recorded `0xA0`. Verify against real bytes when sanitizing; scrub the whole
-  field regardless. See the note in `docs/MoTeC_LD_format_findings.md`.
+- `.ld` decode formula (complete, resolved 10 Aug 2026 from real bytes):
+  `phys = raw × mul / (scale × 10^dec) + shift` — `shift` at record offset
+  `0x18` (additive, physical units); **`scale` at `0x1C` is a divisor**: 1 for
+  67/70 channels, **50 for Ambient & Track Temperature, 9 for Steering Wheel
+  Position**. 70 channels, verified ranges; golden masters in `fixtures/` are
+  the arbiter. **The prototype JS parser omits both `shift` and `scale`** —
+  that's why 9 channels (throttle, brake, clutch, steering ×2, G-force ×3,
+  fuel) show `CAL` badges in it. S3 ports the full formula.
+- **Ambient/Track Temp are NOT unreliable** (reclassified 10 Aug 2026): the
+  old `reliable=False` flag was masking our dropped-`scale` decode bug
+  (−265 °C garbage), not an LMU defect. With the full formula they decode
+  correctly (~29/39 °C in the fixture). Do not re-flag them; G1.3 trips.
+- **No float32 channels.** The only 4-byte channels are the GPS pair,
+  decoded as int32 (float32 reading gives ±1e38 garbage). The signed-int
+  size map `{1:int8, 2:int16, 4:int32}` is correct for all LMU exports seen.
+- Driver name starts at `0x9E` (not `0xA0`) — **confirmed by byte inspection**
+  10 Aug 2026; the findings doc's `0xA0` was off by two and is corrected.
+  The committed fixture carries `DRIVER_REDACTED` in that field.
 - `.ldx` carries lap **summary only** (total laps, fastest lap/time) — **no
   per-lap boundary markers**. Lap segmentation comes from the `.ld`'s own
   Beacon / Lap Number channels.

@@ -18,7 +18,7 @@
 | **Enforced by** | GitHub Actions CI — rings run as ordered, dependent jobs |
 | **Determinism** | Blocking gates never call the live Anthropic API (canned fixtures only). One live smoke test runs *outside* the gate. |
 | **Guiding source** | *Clean Code* T1–T9 heuristics · *Clean Agile* (acceptance-test-as-done) |
-| **Last updated** | 9 Aug 2026 — Ring 1 gains G1.5; Ring 3 re-grounded on Supabase RLS (Clerk superseded); Ring 4 re-grounded as golden-master parity (no Python at pilot runtime) |
+| **Last updated** | 10 Aug 2026 — G1.1 formula gains the `scale` divisor; G1.3 rewritten after the temp-channel reclassification (the "unreliable" flag was our dropped-`scale` bug, not an LMU quirk); G1.5 tripwires pinned to resolved values. *(9 Aug: G1.5 added; Ring 3 → Supabase RLS; Ring 4 → golden-master parity.)* |
 
 ---
 
@@ -41,11 +41,11 @@ The three parsers are pure functions with a full suite already passing. This rin
 
 | Gate | Green when… | Rationale |
 | --- | --- | --- |
-| **G1.1 Decode correctness** | Decoded values satisfy `phys = raw × mul / 10^dec + shift` and fall inside known physical ranges | The reverse-engineered formula is the product's foundation |
+| **G1.1 Decode correctness** | Decoded values satisfy `phys = raw × mul / (scale × 10^dec) + shift` and fall inside known physical ranges | The reverse-engineered formula is the product's foundation — and it has already grown twice (`shift`, then `scale`); the golden masters are the arbiter |
 | **G1.2 Golden master** | Decoding the fixture matches the committed snapshot exactly; any drift fails for review | Catches silent format/parsing regressions (T6 — exhaustively test near bugs) |
-| **G1.3 Quirks asserted** | Ambient/Track Temp flagged `reliable=False`; GTE Tyre Load / Grip Fract / Battery Charge flagged `all_zero`; lap boundaries read from the `.ld` Lap Number channel, **not** `.ldx` | A future change that silently "fixes" a known quirk must trip the gate, not slip through |
+| **G1.3 Quirks asserted** | GTE Tyre Load / Grip Fract / Battery Charge flagged `all_zero` (plus any per-session all-zero channel, e.g. Steering Wheel Position in the fixture session); Ambient/Track Temp decode via `scale=50` to plausible temperatures and are **not** flagged unreliable; lap boundaries read from the `.ld` Lap Number channel, **not** `.ldx` | A change that silently alters a documented quirk must trip the gate. *(History: temps were flagged `reliable=False` until 10 Aug 2026, when byte evidence showed the flag was masking our dropped-`scale` decode bug — the gate now asserts the corrected reality, and re-flagging them would trip it just as hiding a real quirk would.)* |
 | **G1.4 Boundary conditions** | Empty channels, truncated files, and calibration-pending channels are handled without crashing | T5 — we get the middle right and misjudge the edges |
-| **G1.5 Decode assumptions asserted** | Tripwire tests pin the open format questions to evidence: the `scale` field (record offset `0x1C`) is asserted to be 1 for all 70 channels (or the formula is extended and this gate updated); no datatype-category-3 channel decodes as float32 while being read as int32; the driver-name field offset matches the value verified against real bytes | The `shift`-term omission in the prototype JS parser is the cautionary tale — silent formula simplifications must trip a gate, not ship |
+| **G1.5 Decode assumptions asserted** | Tripwire tests pin the format facts resolved 10 Aug 2026 from real bytes (`fixtures/FIXTURE_NOTES.md`): `scale = 1` for 67/70 channels, `50` for Ambient & Track Temperature, `9` for Steering Wheel Position; no channel is float32 — the only 4-byte channels are the GPS pair, decoded as int32; the driver-name field starts at `0x9E` | The `shift`- and `scale`-term omissions in the prototype JS parser are the cautionary tale — silent formula simplifications must trip a gate, not ship |
 
 **Standing bar:** no format assumption ships unverified against a real LMU export. The `.svm` guess-vs-reality miss is the cautionary tale — engineering values live in `//`-comments, not the click-index field.
 
