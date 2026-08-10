@@ -1,0 +1,71 @@
+# ByteCraft Racing — Testing Gates CI (TESTING_GATES.md, Ring 0–1)
+# Rings promote inward: Ring 0 must be green before Ring 1 runs.
+# Rings 2–4 activate as their subjects become real (agent = Phase 2;
+# JS golden-master parity lands with S3 in frontend/ as Vitest).
+
+name: gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ring0-fixture-integrity:
+    name: "Ring 0 · Fixture integrity (G0.1/G0.2)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "G0.1 — fixture triple + golden masters present"
+        run: |
+          for f in cota_gte_sanitized.ld cota_gte_sanitized.ldx cota_gte_sanitized.svm \
+                   golden_master_ld.json golden_master_ldx.json golden_master_svm.json \
+                   FIXTURE_NOTES.md; do
+            test -f "fixtures/$f" || { echo "::error::missing fixtures/$f"; exit 1; }
+          done
+
+      - name: "G4.3 — golden masters generated from exactly these bytes"
+        run: |
+          for ext in ld ldx svm; do
+            h=$(sha256sum "fixtures/cota_gte_sanitized.$ext" | cut -d' ' -f1)
+            grep -q "$h" fixtures/FIXTURE_NOTES.md \
+              || { echo "::error::fixture .$ext hash not recorded in FIXTURE_NOTES.md — regenerate golden masters"; exit 1; }
+          done
+
+      - name: "G0.2 — no raw telemetry outside fixtures/"
+        run: |
+          stray=$(git ls-files '*.ld' '*.ldx' '*.svm' | grep -v '^fixtures/' || true)
+          if [ -n "$stray" ]; then
+            echo "::error::telemetry export outside fixtures/ (may carry driver PII): $stray"
+            exit 1
+          fi
+
+      - name: "G0.2 — fixture driver field is scrubbed"
+        run: |
+          python3 - <<'PY'
+          import json
+          data = open("fixtures/cota_gte_sanitized.ld", "rb").read()
+          field = data[0x9E:0x9E + 64]
+          name = field.split(b"\x00")[0].decode("ascii", "replace")
+          assert name == "DRIVER_REDACTED", f"driver field not scrubbed: {name!r}"
+          g = json.load(open("fixtures/golden_master_ld.json"))
+          assert g["header"]["driver"] == "DRIVER_REDACTED", "golden master driver field mismatch"
+          print("driver field scrubbed; fixture and golden master agree")
+          PY
+
+  ring1-parser-truth:
+    name: "Ring 1 · Parser truth (G1.1–G1.5)"
+    needs: ring0-fixture-integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: pip install pytest pytest-cov numpy
+      - name: Run backend unit suite against the fixture
+        working-directory: backend
+        run: python -m pytest tests/unit/ -q
