@@ -15,8 +15,16 @@ Derived by direct inspection of a real LMU export:
 | 0x4C | char[4] | device marker | "ADL" |
 | 0x5E | char | date string | "30/06/2026" |
 | 0x7E | char | time string | "19:32:27" |
-| 0xA0 | char | driver name | "Ohioma Eboreime" |
+| 0xA0 | char | driver name | *(15-char name — scrubbed per G0.2; see note below)* |
 | 0x15E | char | venue | "Circuit of the Americas" |
+
+> **Note on the driver-name field.** The real value was scrubbed from this doc (Ring 0
+> G0.2 — the repo must carry no real driver identifiers). **Open discrepancy:** this table
+> says the field starts at `0xA0`, but `CLAUDE.md` and the working JS parser
+> (`prototypes/ByteCraft_SessionUpload.jsx`, which reads a str32 at `0x9E`) both say
+> `0x9E`. Whoever produces the sanitized fixture must confirm the true start offset
+> against the real bytes and zero the **entire** field, then correct whichever source is
+> wrong. Do not resolve this from assumption.
 
 ## Channel metadata record — 124 bytes each, singly-linked
 

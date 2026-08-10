@@ -1,0 +1,38 @@
+# --- Real LMU telemetry exports contain driver PII: NEVER commit them. ---
+# The only telemetry allowed in the repo is the sanitized fixture triple
+# (Ring 0, TESTING_GATES.md G0.1/G0.2), explicitly re-included below.
+*.ld
+*.ldx
+*.svm
+!fixtures/*.ld
+!fixtures/*.ldx
+!fixtures/*.svm
+
+# Dependencies & build output
+node_modules/
+dist/
+build/
+.vercel/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Logs
+*.log
