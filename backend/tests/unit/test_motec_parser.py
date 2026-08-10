@@ -300,11 +300,11 @@ class TestSanitizedFixture:
         ld = parse_ld(data)
         golden = _json.loads(_GOLDEN.read_text())
 
-        assert ld.header.venue == golden["ld_header"]["venue"]
+        assert ld.header.venue == golden["header"]["venue"]
         assert ld.header.driver == "DRIVER_REDACTED"
-        assert len(ld.channels) == golden["ld_channel_count"]
+        assert len(ld.channels) == golden["channel_count"]
 
-        for name, gch in golden["ld_channels"].items():
+        for name, gch in golden["channels"].items():
             ch = ld.channels[name]
             assert ch.mul == gch["mul"], f"{name} mul drift"
             assert ch.dec == gch["dec"], f"{name} dec drift"

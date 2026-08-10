@@ -49,3 +49,13 @@
    ```
 
    Reproduce with `sha256sum fixtures/cota_gte_sanitized.*` from the repo root.
+
+---
+
+**Erratum (10 Aug 2026, review):** the sentence in §3 saying the temperature
+channels "still carry `reliable=False`" is stale — the committed parser removes
+the unreliable flag for Ambient/Track Temperature entirely (see
+`UNRELIABLE_CHANNELS` in `backend/app/ingest/motec.py`): with the scale term
+applied they decode correctly, so the old flag was masking our own decode bug,
+not an LMU defect. The golden master records `reliable: true` for both.
+`TESTING_GATES.md` G1.3 updated to match.
