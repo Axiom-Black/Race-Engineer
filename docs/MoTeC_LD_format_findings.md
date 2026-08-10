@@ -15,16 +15,16 @@ Derived by direct inspection of a real LMU export:
 | 0x4C | char[4] | device marker | "ADL" |
 | 0x5E | char | date string | "30/06/2026" |
 | 0x7E | char | time string | "19:32:27" |
-| 0xA0 | char | driver name | *(15-char name — scrubbed per G0.2; see note below)* |
+| 0x9E | char | driver name | scrubbed per G0.2 — see note below (**confirmed 0x9E**, not 0xA0) |
 | 0x15E | char | venue | "Circuit of the Americas" |
 
-> **Note on the driver-name field.** The real value was scrubbed from this doc (Ring 0
-> G0.2 — the repo must carry no real driver identifiers). **Open discrepancy:** this table
-> says the field starts at `0xA0`, but `CLAUDE.md` and the working JS parser
-> (`prototypes/ByteCraft_SessionUpload.jsx`, which reads a str32 at `0x9E`) both say
-> `0x9E`. Whoever produces the sanitized fixture must confirm the true start offset
-> against the real bytes and zero the **entire** field, then correct whichever source is
-> wrong. Do not resolve this from assumption.
+> **Note on the driver-name field.** **Resolved** (see `fixtures/FIXTURE_NOTES.md`):
+> byte inspection of the real export confirms the name string starts at `0x9E`, not
+> `0xA0` — this table previously said `0xA0`, which was wrong by two bytes.
+> `CLAUDE.md` and the JS parser (`prototypes/ByteCraft_SessionUpload.jsx`, which reads
+> a str32 at `0x9E`) were right. The committed sanitized fixture overwrites the
+> 64-byte field at `0x9E` with a scrub placeholder — no real driver identifier is
+> present in the repo.
 
 ## Channel metadata record — 124 bytes each, singly-linked
 
@@ -41,7 +41,7 @@ Starts at the meta pointer (0x3448). Each record:
 | 0x16 | u16 | sample rate | **Hz** (10, 20, 25, 50, …) |
 | 0x18 | s16 | shift | offset term |
 | 0x1A | s16 | mul (multiplier) | |
-| 0x1C | s16 | scale | |
+| 0x1C | s16 | scale | **divisor term** — 1 for 67/70 channels, but 9 or 50 for three (see resolution below) |
 | 0x1E | s16 | dec (decimal shift) | power-of-ten divisor |
 | 0x20 | char[32] | channel name | e.g. "Ground Speed" |
 | 0x40 | char[8] | short name | e.g. "Grd Spd" |
@@ -75,18 +75,35 @@ Verified exactly against:
 - **Engine RPM**: raw 0–7996 → 0–7996 rpm (matches the 7,500 rev-limit setup) ✓
 - **Ground Speed**: with standstill-baseline subtraction → 0–246 km/h (physically correct for GTE at COTA) ✓
 
-## OPEN ITEM — the additive offset
+## RESOLVED — the additive offset and the scale term
 
-Three channels prove there's a per-channel **additive offset** not yet pinned to a byte:
+Three channels originally proved there's a per-channel **additive offset** not yet
+pinned to a byte:
 - Throttle: raw ±25000 → needs +25000 to read 0–100 %
 - G Force Lat: reads 7.6–12.1 G → needs centering near 0
 - Fuel Level: reads negative → needs offset
 
-The `shift` field at 0x18 is the likely source but the exact formula
-combining shift/scale/mul/dec is not yet locked. **This is the one remaining
-decode task** before the parser is production-correct. It's a bounded problem —
-solvable against this same file by fitting the formula to the three channels
-whose physical range we already know (throttle 0–100, brake 0–100, gear 0–6).
+**Confirmed against the real bytes** (see `fixtures/FIXTURE_NOTES.md`): the complete
+formula is
+
+```
+phys = raw * mul / (scale * 10^dec) + shift
+```
+
+`shift` (0x18) is the additive term above. `scale` (0x1C) is `1` for 67 of the 70
+channels — which is why it looked inert — but Ambient Temperature and Track
+Temperature use `50`, and Steering Wheel Position uses `9`. Dropping `scale` is
+what previously made the two temperature channels decode to nonsense (−265 °C /
++251 °C instead of the correct ~29–39 °C); they still carry `reliable=False` for a
+separate, known LMU offset issue, but the scale math itself is now correct. The
+production Python parser applies both terms; **the JS port must add `scale`** (it
+already has `shift`; omitting it is what causes the `CAL` badges on 9 channels).
+
+**Datatype note (also resolved):** no datatype-category-3 channel is float32.
+Category/size pairs present: (cat 0, size 2) × 1 = int16; (cat 3, size 1) × 2 = int8;
+(cat 3, size 2) × 65 = int16; (cat 5, size 4) × 2 = int32 — the two GPS channels are
+the only 4-byte samples, and they are int32, not float32 (reading them as float32
+produces ±1e38 garbage). No float branch is needed anywhere in an LMU export.
 
 ## `.svm` setup format — REQUIRES PARSER REWRITE
 

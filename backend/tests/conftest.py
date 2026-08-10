@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 # The sanitized fixture triple committed for CI (Ring 0 / Working Plan S1).
-# Adjust to match your repo layout.
-FIXTURE_DIR = Path(__file__).parent / "fixtures"
+# Canonical location per TESTING_GATES.md G0.1: repo-root fixtures/.
+FIXTURE_DIR = Path(__file__).parent.parent.parent / "fixtures"
 
 # Sanitized COTA / Ferrari 488 GTE Evo session (driver name scrubbed,
 # GPS left in game-world coordinate space — see G0.2).
