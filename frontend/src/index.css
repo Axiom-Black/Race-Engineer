@@ -1,1 +1,17 @@
-/* reset — ByteCraft styles live in components for now (S5 brings the design system) */
+/* ByteCraft Racing — base reset. Component styles live inline for now;
+   S5's design system will formalize this. */
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+body {
+  background: #0a0a0c;
+  color: #d6d8dc;
+  -webkit-font-smoothing: antialiased;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
