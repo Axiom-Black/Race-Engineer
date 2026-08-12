@@ -1,0 +1,490 @@
+// ByteCraft Racing — SessionReport (S5 · Step 4).
+// The full four-tab session view — Summary / Performance / Instruments /
+// Track Map — driven by a single lap selector and a synced distance cursor,
+// computed from REAL persisted data (lap summaries + the distance-resampled
+// trace blob), not sample data. Replaces the first-pass SessionDetail
+// stand-in. Ports the prototype's visual language onto honest data; empty/
+// unreliable channels stay flagged, never hidden (standing bar).
+import { useEffect, useMemo, useState } from 'react'
+import { C, font } from '../theme'
+import { getSession, getSessionTrace } from '../lib/sessions'
+
+const TABS = ['Summary', 'Performance', 'Instruments', 'Track Map']
+
+const DOMAIN_COLOR = {
+  Telemetry: C.pink, Tire: C.warn, Brakes: C.orange, Aero: C.blue,
+  Powertrain: C.good, Environment: C.silver2, GPS: C.dim, Session: C.dim,
+}
+
+// ── formatting ────────────────────────────────────────────────────
+function fmtTime(s) {
+  if (s == null) return '—'
+  const m = Math.floor(s / 60)
+  return `${m}:${(s % 60).toFixed(3).padStart(6, '0')}`
+}
+const n1 = (v) => (v == null ? '—' : v.toFixed(1))
+const n2 = (v) => (v == null ? '—' : v.toFixed(2))
+
+// ── tiny UI atoms ─────────────────────────────────────────────────
+function Card({ children, style }) {
+  return (
+    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, ...style }}>
+      {children}
+    </div>
+  )
+}
+function StatCell({ label, value, unit, color = C.silver3 }) {
+  return (
+    <div style={{ background: C.panel, padding: '13px 16px' }}>
+      <div style={{ fontSize: 9, color: C.dim, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 19, fontWeight: 800, color, fontFamily: font.mono }}>
+        {value}
+        {unit ? <span style={{ fontSize: 10, color: C.dim, fontWeight: 400 }}> {unit}</span> : null}
+      </div>
+    </div>
+  )
+}
+
+// ── per-lap metrics from the trace points ─────────────────────────
+function lapMetrics(pts) {
+  if (!pts || !pts.length) return null
+  let topSpeed = 0
+  let peakLatG = 0
+  let peakLongG = 0
+  let maxRpm = 0
+  let fullThrottle = 0
+  for (const p of pts) {
+    if (p.s != null && p.s > topSpeed) topSpeed = p.s
+    if (p.gl != null && Math.abs(p.gl) > peakLatG) peakLatG = Math.abs(p.gl)
+    if (p.glo != null && Math.abs(p.glo) > peakLongG) peakLongG = Math.abs(p.glo)
+    if (p.r != null && p.r > maxRpm) maxRpm = p.r
+    if (p.t != null && p.t >= 99) fullThrottle++
+  }
+  return {
+    topSpeed,
+    peakLatG,
+    peakLongG,
+    maxRpm,
+    fullThrottlePct: (fullThrottle / pts.length) * 100,
+  }
+}
+
+// ── SVG line plot vs distance, with a shared cursor ───────────────
+function Plot({ pts, pick, color, label, unit, cursor, onScrub, height = 92, zero = false }) {
+  const W = 1000
+  const H = height
+  const vals = pts.map(pick)
+  const present = vals.filter((v) => v != null)
+  if (!present.length) {
+    return (
+      <div style={{ marginBottom: 12 }}>
+        <PlotLabel label={label} value="—" unit={unit} color={C.dim} />
+        <div style={{ height, border: `1px solid ${C.line}`, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.dim, fontSize: 11 }}>
+          channel empty
+        </div>
+      </div>
+    )
+  }
+  let lo = Math.min(...present)
+  let hi = Math.max(...present)
+  if (zero) lo = Math.min(0, lo)
+  if (hi === lo) hi = lo + 1
+  const x = (i) => (i / (pts.length - 1)) * W
+  const y = (v) => H - 6 - ((v - lo) / (hi - lo)) * (H - 12)
+  const d = vals
+    .map((v, i) => (v == null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
+    .filter(Boolean)
+    .join(' ')
+  const cx = x(cursor)
+  const cVal = vals[cursor]
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <PlotLabel label={label} value={cVal == null ? '—' : (Number.isInteger(cVal) ? cVal : cVal.toFixed(1))} unit={unit} color={color} />
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        style={{ width: '100%', height, border: `1px solid ${C.line}`, borderRadius: 8, background: C.bg, display: 'block', cursor: 'crosshair' }}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
+          onScrub(Math.round(frac * (pts.length - 1)))
+        }}
+      >
+        {zero && lo < 0 && (
+          <line x1="0" y1={y(0)} x2={W} y2={y(0)} stroke={C.line} strokeWidth="1" />
+        )}
+        <polyline points={d} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        <line x1={cx} y1="0" x2={cx} y2={H} stroke={C.silver3} strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+        {cVal != null && <circle cx={cx} cy={y(cVal)} r="3" fill={color} />}
+      </svg>
+    </div>
+  )
+}
+function PlotLabel({ label, value, unit, color }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
+      <span style={{ fontSize: 10, letterSpacing: 1, color: C.dim, textTransform: 'uppercase' }}>{label}</span>
+      <span style={{ fontFamily: font.mono, fontSize: 12, color, fontWeight: 700 }}>
+        {value}<span style={{ color: C.dim, fontWeight: 400 }}> {unit}</span>
+      </span>
+    </div>
+  )
+}
+
+// ── GPS track map, colored by speed, with the cursor dot ──────────
+function speedColor(frac) {
+  // slow → blue, mid → warn, fast → pink
+  if (frac < 0.5) return lerpHex(C.blue, C.warn, frac / 0.5)
+  return lerpHex(C.warn, C.pink, (frac - 0.5) / 0.5)
+}
+function lerpHex(a, b, t) {
+  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16))
+  const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16))
+  const p = pa.map((v, i) => Math.round(v + (pb[i] - v) * t))
+  return `#${p.map((v) => v.toString(16).padStart(2, '0')).join('')}`
+}
+function TrackMap({ pts, aspect, cursor }) {
+  const withGps = pts.filter((p) => p.x != null && p.y != null)
+  if (withGps.length < 3) {
+    return <div style={{ color: C.dim, fontSize: 12, padding: 20 }}>No GPS trace for this lap.</div>
+  }
+  const W = 1000
+  const PAD = 40
+  const H = Math.round(W * (aspect || 1))
+  // y inverted so higher latitude (north) is up
+  const px = (p) => PAD + p.x * (W - 2 * PAD)
+  const py = (p) => PAD + (1 - p.y) * (H - 2 * PAD)
+  const speeds = withGps.map((p) => p.s ?? 0)
+  const sMin = Math.min(...speeds)
+  const sMax = Math.max(...speeds) || 1
+  const cur = pts[cursor]
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: 460, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 12 }}>
+      {withGps.slice(1).map((p, i) => {
+        const prev = withGps[i]
+        const frac = ((p.s ?? 0) - sMin) / (sMax - sMin || 1)
+        return (
+          <line key={i} x1={px(prev)} y1={py(prev)} x2={px(p)} y2={py(p)} stroke={speedColor(frac)} strokeWidth="3" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        )
+      })}
+      {cur && cur.x != null && (
+        <circle cx={px(cur)} cy={py(cur)} r="6" fill={C.silver3} stroke={C.bg} strokeWidth="2" />
+      )}
+    </svg>
+  )
+}
+
+// ── main ──────────────────────────────────────────────────────────
+export default function SessionReport({ sessionId, onBack }) {
+  const [state, setState] = useState({ loading: true, error: '', session: null, laps: [], trace: null })
+  const [tab, setTab] = useState('Summary')
+  const [lapNo, setLapNo] = useState(null)
+  const [cursor, setCursor] = useState(0)
+  const [domainFilter, setDomainFilter] = useState('All')
+
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      try {
+        const { session, laps } = await getSession(sessionId)
+        const trace = await getSessionTrace(session).catch(() => null)
+        if (!active) return
+        const firstLap = session.fastest_lap_no ?? trace?.laps?.[0]?.lap ?? laps[0]?.lap_no ?? null
+        setLapNo(firstLap)
+        setState({ loading: false, error: '', session, laps, trace })
+      } catch (err) {
+        if (active) setState({ loading: false, error: err.message, session: null, laps: [], trace: null })
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [sessionId])
+
+  const traceLap = useMemo(() => {
+    if (!state.trace) return null
+    return state.trace.laps.find((l) => l.lap === lapNo) ?? state.trace.laps[0] ?? null
+  }, [state.trace, lapNo])
+
+  const pts = useMemo(() => traceLap?.pts ?? [], [traceLap])
+  const metrics = useMemo(() => lapMetrics(pts), [pts])
+
+  // keep the cursor in range when the lap changes
+  useEffect(() => {
+    setCursor((c) => (pts.length ? Math.min(c, pts.length - 1) : 0))
+  }, [pts.length])
+
+  if (state.loading) return <div style={{ color: C.dim }}>Loading…</div>
+  if (state.error) return <div style={{ color: C.danger }}>{state.error}</div>
+
+  const { session, laps, trace } = state
+  const channels = session.summary?.channels ?? []
+  const flagged = channels.filter((c) => c.allZero || !c.reliable)
+
+  return (
+    <div>
+      <button onClick={onBack} style={{ background: 'none', border: 'none', color: C.dim, cursor: 'pointer', fontSize: 13, marginBottom: 14, padding: 0, fontFamily: font.ui }}>
+        ← Back to sessions
+      </button>
+
+      <h1 style={{ color: C.silver3, fontSize: 20, fontWeight: 800, margin: '0 0 4px' }}>
+        {session.venue} — {session.car}
+        {session.is_demo && (
+          <span style={{ color: C.pink, fontSize: 11, fontWeight: 700, marginLeft: 10, letterSpacing: 0.5 }}>DEMO SESSION</span>
+        )}
+      </h1>
+      <p style={{ color: C.dim, fontSize: 13, margin: '0 0 16px' }}>
+        {session.car_class} · {session.ruleset} · {session.session_type} ·{' '}
+        {session.recorded_at ? new Date(session.recorded_at).toLocaleString() : '—'}
+      </p>
+
+      {/* lap selector + tab bar */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: C.dim, letterSpacing: 1, textTransform: 'uppercase' }}>Lap</span>
+          <select
+            value={lapNo ?? ''}
+            onChange={(e) => setLapNo(Number(e.target.value))}
+            style={{ background: C.panel, color: C.silver3, border: `1px solid ${C.line}`, borderRadius: 6, padding: '5px 8px', fontFamily: font.mono, fontSize: 13 }}
+          >
+            {laps.map((l) => (
+              <option key={l.id} value={l.lap_no}>
+                Lap {l.lap_no}{session.fastest_lap_no === l.lap_no ? ' ★' : ''} — {l.valid ? fmtTime(l.lap_time_s) : 'in progress'}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', flexWrap: 'wrap' }}>
+          {TABS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              style={{
+                background: tab === t ? C.pink : 'transparent',
+                color: tab === t ? '#0A0A0C' : C.silver2,
+                border: `1px solid ${tab === t ? C.pink : C.line}`,
+                borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                cursor: 'pointer', fontFamily: font.ui,
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {tab === 'Summary' && (
+        <SummaryTab session={session} laps={laps} channels={channels} flagged={flagged} metrics={metrics} traceLap={traceLap} domainFilter={domainFilter} setDomainFilter={setDomainFilter} />
+      )}
+      {tab === 'Performance' && <PerformanceTab metrics={metrics} pts={pts} lapValid={!!traceLap} />}
+      {(tab === 'Instruments' || tab === 'Track Map') && !trace && (
+        <div style={{ color: C.dim, fontSize: 13, padding: 20, border: `1px dashed ${C.line}`, borderRadius: 12 }}>
+          Trace unavailable for this session (uploaded before trace capture, or still ingesting).
+        </div>
+      )}
+      {tab === 'Instruments' && trace && (
+        <InstrumentsTab pts={pts} cursor={cursor} setCursor={setCursor} />
+      )}
+      {tab === 'Track Map' && trace && (
+        <TrackMapTab pts={pts} aspect={trace.aspect} cursor={cursor} setCursor={setCursor} />
+      )}
+    </div>
+  )
+}
+
+// ── Summary ───────────────────────────────────────────────────────
+function SummaryTab({ session, laps, channels, flagged, metrics, traceLap, domainFilter, setDomainFilter }) {
+  const domains = ['All', ...Array.from(new Set(channels.map((c) => c.domain))).sort()]
+  const shown = domainFilter === 'All' ? channels : channels.filter((c) => c.domain === domainFilter)
+  const silhouette = traceLap?.pts?.filter((p) => p.x != null) ?? []
+  const sw = 200
+  const sh = Math.round(200 * (session.summary && silhouette.length ? 0.6 : 0.6))
+  const sil = silhouette.map((p) => `${8 + p.x * (sw - 16)},${6 + (1 - p.y) * (sh - 12)}`).join(' ')
+  return (
+    <>
+      <Card style={{ overflow: 'hidden', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', borderBottom: `1px solid ${C.line}` }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 20, fontWeight: 900, color: C.silver3 }}>{(session.venue ?? '').toUpperCase()}</div>
+            <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>
+              {session.car} · <span style={{ color: C.pink }}>{session.car_class}</span> {session.ruleset}
+            </div>
+          </div>
+          {sil && (
+            <svg width={sw} height={sh} style={{ flexShrink: 0, opacity: 0.9 }}>
+              <polyline points={sil} fill="none" stroke={C.silver3} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+            </svg>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, background: C.line }}>
+          <StatCell label="Fastest lap" value={fmtTime(session.fastest_lap_s)} color={C.pink} />
+          <StatCell label="Laps" value={session.lap_count ?? laps.length} />
+          <StatCell label="Length" value={session.length_km ? session.length_km.toFixed(2) : '—'} unit="km" />
+          <StatCell label="Full throttle" value={metrics ? n1(metrics.fullThrottlePct) : '—'} unit="%" color={C.warn} />
+        </div>
+      </Card>
+
+      <h2 style={{ color: C.silver3, fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>Laps</h2>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: 'hidden', marginBottom: 24 }}>
+        {laps.map((l) => {
+          const best = session.fastest_lap_no === l.lap_no
+          return (
+            <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', borderBottom: `1px solid ${C.line}`, background: best ? C.pinkBg : 'transparent', fontFamily: font.mono, fontSize: 13 }}>
+              <span style={{ color: best ? C.pink : C.silver2 }}>Lap {l.lap_no} {best ? '★' : ''}</span>
+              <span style={{ color: C.dim }}>{l.valid ? fmtTime(l.lap_time_s) : 'in progress at export'}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+        <h2 style={{ color: C.silver3, fontSize: 14, fontWeight: 700, margin: 0 }}>
+          Channel inventory · {channels.length} <span style={{ color: C.dim, fontWeight: 400, fontSize: 12 }}>({flagged.length} flagged)</span>
+        </h2>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          {domains.map((d) => (
+            <span key={d} onClick={() => setDomainFilter(d)} style={{ cursor: 'pointer', fontSize: 9, fontWeight: 700, letterSpacing: 0.5, padding: '3px 8px', borderRadius: 5, color: domainFilter === d ? '#0A0A0C' : DOMAIN_COLOR[d] || C.dim, background: domainFilter === d ? DOMAIN_COLOR[d] || C.pink : 'transparent', border: `1px solid ${domainFilter === d ? 'transparent' : C.line}` }}>
+              {d}
+            </span>
+          ))}
+        </div>
+      </div>
+      <p style={{ color: C.dim, fontSize: 12, margin: '0 0 10px' }}>
+        Every decoded channel, honestly — known-empty and unreliable channels are flagged, never hidden.
+      </p>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: 'hidden' }}>
+        {shown.map((c) => (
+          <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 14px', borderBottom: `1px solid ${C.line}`, fontSize: 12 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: C.silver2 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: DOMAIN_COLOR[c.domain] || C.dim, flexShrink: 0 }} />
+              {c.name}
+              {c.allZero && <FlagBadge kind="empty">EMPTY</FlagBadge>}
+              {!c.reliable && <FlagBadge kind="unreliable">UNRELIABLE</FlagBadge>}
+            </span>
+            <span style={{ color: C.dim, fontFamily: font.mono }}>
+              {c.allZero ? '—' : `${c.min?.toFixed(2)} … ${c.max?.toFixed(2)} ${c.unit}`}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+function FlagBadge({ kind, children }) {
+  const map = {
+    empty: { fg: C.warn, bd: 'rgba(232,194,74,0.35)', bg: 'rgba(232,194,74,0.1)' },
+    unreliable: { fg: C.danger, bd: 'rgba(255,85,85,0.35)', bg: 'rgba(255,85,85,0.1)' },
+  }[kind]
+  return (
+    <span style={{ border: `1px solid ${map.bd}`, background: map.bg, color: map.fg, borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700, letterSpacing: 0.5, marginLeft: 6 }}>
+      {children}
+    </span>
+  )
+}
+
+// ── Performance ───────────────────────────────────────────────────
+function PerformanceTab({ metrics, pts, lapValid }) {
+  if (!lapValid || !metrics) {
+    return <div style={{ color: C.dim, fontSize: 13, padding: 20 }}>No trace for this lap — performance metrics need the trace blob.</div>
+  }
+  // time-share in speed bands, computed from the lap's own points
+  const bands = [
+    { label: 'Low (< 100 km/h)', test: (s) => s < 100, col: C.pink },
+    { label: 'Medium (100–200)', test: (s) => s >= 100 && s < 200, col: C.warn },
+    { label: 'High (≥ 200 km/h)', test: (s) => s >= 200, col: C.blue },
+  ]
+  const total = pts.length || 1
+  const bandPct = bands.map((b) => ({ ...b, pct: (pts.filter((p) => b.test(p.s ?? 0)).length / total) * 100 }))
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+      <Card style={{ padding: '16px 18px' }}>
+        <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3, marginBottom: 12 }}>CAR PERFORMANCE — THIS LAP</div>
+        {[
+          ['Top speed', n1(metrics.topSpeed), 'km/h', C.pink],
+          ['Peak lateral G', n2(metrics.peakLatG), 'G', C.silver3],
+          ['Peak longitudinal G', n2(metrics.peakLongG), 'G', C.silver3],
+          ['Max RPM', metrics.maxRpm ? Math.round(metrics.maxRpm) : '—', 'rpm', C.silver3],
+          ['Full-throttle share', n1(metrics.fullThrottlePct), '%', C.warn],
+        ].map(([label, value, unit, col]) => (
+          <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
+            <span style={{ fontSize: 12.5, color: C.silver2 }}>{label}</span>
+            <span style={{ fontFamily: font.mono, fontSize: 15, fontWeight: 800, color: col }}>{value}<span style={{ fontSize: 10, color: C.dim, fontWeight: 400 }}> {unit}</span></span>
+          </div>
+        ))}
+      </Card>
+      <Card style={{ padding: '16px 18px' }}>
+        <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3, marginBottom: 12 }}>SPEED PROFILE</div>
+        {bandPct.map((b) => (
+          <div key={b.label} style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: b.col, letterSpacing: 0.5 }}>{b.label}</span>
+              <span style={{ fontSize: 11, color: C.dim, fontFamily: font.mono }}>{b.pct.toFixed(0)}%</span>
+            </div>
+            <div style={{ height: 8, background: C.panel2, borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ width: `${b.pct}%`, height: '100%', background: b.col, borderRadius: 4 }} />
+            </div>
+          </div>
+        ))}
+        <div style={{ fontSize: 9, color: C.dim, fontStyle: 'italic', marginTop: 4, lineHeight: 1.5 }}>
+          Share of the lap's distance-sampled points in each speed band, from the decoded Ground Speed channel.
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+// ── Instruments ───────────────────────────────────────────────────
+function InstrumentsTab({ pts, cursor, setCursor }) {
+  if (!pts.length) return <div style={{ color: C.dim, padding: 20 }}>No trace for this lap.</div>
+  return (
+    <Card style={{ padding: '16px 18px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3 }}>INSTRUMENTS — scrub by distance</div>
+        <span style={{ fontFamily: font.mono, fontSize: 12, color: C.pink }}>{(pts[cursor]?.d * 100).toFixed(1)}% of lap</span>
+      </div>
+      <input
+        type="range" min={0} max={pts.length - 1} value={cursor}
+        onChange={(e) => setCursor(Number(e.target.value))}
+        style={{ width: '100%', marginBottom: 14, accentColor: C.pink }}
+      />
+      <Plot pts={pts} pick={(p) => p.s} color={C.pink} label="Speed" unit="km/h" cursor={cursor} onScrub={setCursor} />
+      <Plot pts={pts} pick={(p) => p.t} color={C.good} label="Throttle" unit="%" cursor={cursor} onScrub={setCursor} height={70} />
+      <Plot pts={pts} pick={(p) => p.b} color={C.danger} label="Brake" unit="%" cursor={cursor} onScrub={setCursor} height={70} />
+      <Plot pts={pts} pick={(p) => p.r} color={C.warn} label="Engine RPM" unit="rpm" cursor={cursor} onScrub={setCursor} height={70} />
+      <Plot pts={pts} pick={(p) => p.g} color={C.blue} label="Gear" unit="" cursor={cursor} onScrub={setCursor} height={56} />
+      <Plot pts={pts} pick={(p) => p.gl} color={C.silver2} label="Lateral G" unit="G" cursor={cursor} onScrub={setCursor} height={70} zero />
+      <Plot pts={pts} pick={(p) => p.glo} color={C.silver3} label="Longitudinal G" unit="G" cursor={cursor} onScrub={setCursor} height={70} zero />
+    </Card>
+  )
+}
+
+// ── Track Map ─────────────────────────────────────────────────────
+function TrackMapTab({ pts, aspect, cursor, setCursor }) {
+  const cur = pts[cursor]
+  return (
+    <Card style={{ padding: '16px 18px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3 }}>TRACK MAP — colored by speed</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: C.dim }}>
+          <span>slow</span>
+          <span style={{ width: 90, height: 6, borderRadius: 3, background: `linear-gradient(90deg, ${C.blue}, ${C.warn}, ${C.pink})` }} />
+          <span>fast</span>
+        </div>
+      </div>
+      <TrackMap pts={pts} aspect={aspect} cursor={cursor} />
+      <input
+        type="range" min={0} max={pts.length - 1} value={cursor}
+        onChange={(e) => setCursor(Number(e.target.value))}
+        style={{ width: '100%', marginTop: 12, accentColor: C.pink }}
+      />
+      <div style={{ display: 'flex', gap: 18, marginTop: 8, fontFamily: font.mono, fontSize: 12, color: C.silver2, flexWrap: 'wrap' }}>
+        <span>{(cur?.d * 100).toFixed(1)}% lap</span>
+        <span>{n1(cur?.s)} km/h</span>
+        <span>thr {n1(cur?.t)}%</span>
+        <span>brk {n1(cur?.b)}%</span>
+        <span>gear {cur?.g ?? '—'}</span>
+        <span>GPS is game-world (relative positions exact)</span>
+      </div>
+    </Card>
+  )
+}
