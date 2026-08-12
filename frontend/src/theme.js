@@ -21,6 +21,7 @@ export const C = {
   good: '#5BD6A0',
   warn: '#E8C24A',
   danger: '#FF5555',
+  blue: '#4FA3FF',
 }
 
 export const font = {

@@ -15,3 +15,10 @@ body {
   -webkit-font-smoothing: antialiased;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
+
+/* Shared "in progress" pulse — ingest pipeline steps, agent-run pips
+   (ByteCraft_SessionUpload.jsx / RaceEngineeringAgent_v2.jsx pattern). */
+@keyframes bc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}

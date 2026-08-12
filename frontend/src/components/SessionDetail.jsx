@@ -10,6 +10,13 @@ import { useEffect, useState } from 'react'
 import { C, font } from '../theme'
 import { getSession } from '../lib/sessions'
 
+// Matches prototypes/ByteCraft_SessionUpload.jsx's DOMAIN_COLOR — kept here
+// (not in lib/motec/domain.js) so the pure parser module stays theme-agnostic.
+const DOMAIN_COLOR = {
+  Telemetry: C.pink, Tire: C.warn, Brakes: C.orange, Aero: C.blue,
+  Powertrain: C.good, Environment: C.silver2, GPS: C.dim, Session: C.dim,
+}
+
 function fmtTime(s) {
   if (s == null) return '—'
   const m = Math.floor(s / 60)
@@ -44,6 +51,7 @@ function Flag({ kind, children }) {
 
 export default function SessionDetail({ sessionId, onBack }) {
   const [state, setState] = useState({ loading: true, error: '', session: null, laps: [] })
+  const [domainFilter, setDomainFilter] = useState('All')
 
   useEffect(() => {
     let active = true
@@ -61,6 +69,8 @@ export default function SessionDetail({ sessionId, onBack }) {
   const { session, laps } = state
   const channels = session.summary?.channels ?? []
   const flagged = channels.filter((c) => c.allZero || !c.reliable)
+  const domains = ['All', ...Array.from(new Set(channels.map((c) => c.domain))).sort()]
+  const shownChannels = domainFilter === 'All' ? channels : channels.filter((c) => c.domain === domainFilter)
 
   return (
     <div>
@@ -127,14 +137,37 @@ export default function SessionDetail({ sessionId, onBack }) {
         })}
       </div>
 
-      <h2 style={{ color: C.silver3, fontSize: 15, fontWeight: 700, margin: '0 0 10px' }}>
-        Channel inventory
-      </h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <h2 style={{ color: C.silver3, fontSize: 15, fontWeight: 700, margin: 0 }}>
+          Channel inventory · {channels.length}
+        </h2>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          {domains.map((d) => (
+            <span
+              key={d}
+              onClick={() => setDomainFilter(d)}
+              style={{
+                cursor: 'pointer',
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: 0.5,
+                padding: '3px 8px',
+                borderRadius: 5,
+                color: domainFilter === d ? '#0A0A0C' : DOMAIN_COLOR[d] || C.dim,
+                background: domainFilter === d ? (DOMAIN_COLOR[d] || C.pink) : 'transparent',
+                border: `1px solid ${domainFilter === d ? 'transparent' : C.line}`,
+              }}
+            >
+              {d}
+            </span>
+          ))}
+        </div>
+      </div>
       <p style={{ color: C.dim, fontSize: 12, margin: '0 0 10px' }}>
         Every decoded channel, honestly — known-empty and unreliable channels are flagged, never hidden.
       </p>
       <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: 'hidden' }}>
-        {channels.map((c) => (
+        {shownChannels.map((c) => (
           <div
             key={c.name}
             style={{
@@ -146,7 +179,8 @@ export default function SessionDetail({ sessionId, onBack }) {
               fontSize: 12,
             }}
           >
-            <span style={{ color: C.silver2 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: C.silver2 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: DOMAIN_COLOR[c.domain] || C.dim, flexShrink: 0 }} />
               {c.name}
               {c.allZero && <Flag kind="empty">EMPTY</Flag>}
               {!c.reliable && <Flag kind="unreliable">UNRELIABLE</Flag>}

@@ -1,57 +1,62 @@
 // ByteCraft Racing — session upload (S5 back half).
-// Enforces the atomicity standing bar client-side: the Upload button stays
-// disabled until all three files are present, and the file inputs are typed
-// by extension so a driver can't accidentally submit two .ld files. The real
-// atomicity guarantee is the DB constraint (lib/sessions.js); this is UX.
+// Visual/interaction pattern ported from prototypes/ByteCraft_SessionUpload.jsx:
+// a single drag-and-drop target that auto-detects file type by extension,
+// three status cards below, and an ingest pipeline indicator
+// (pending -> parsing -> complete/failed). Real difference from the
+// prototype: this uploads to Supabase and persists, not an in-memory-only
+// browser demo.
+//
+// Atomicity is enforced twice, per the standing bar: client UX here (Upload
+// disabled until all three slots are filled) AND the DB constraint in
+// lib/sessions.js/the schema — this component is not the security boundary,
+// just the UX for it.
 import { useRef, useState } from 'react'
 import { C, font } from '../theme'
 import { Button, Banner } from './ui'
 import { uploadSession } from '../lib/sessions'
 
 const SLOTS = [
-  { key: 'ld', label: '.ld', hint: 'telemetry', accept: '.ld' },
-  { key: 'ldx', label: '.ldx', hint: 'lap summary + setup', accept: '.ldx' },
-  { key: 'svm', label: '.svm', hint: 'setup', accept: '.svm' },
+  { key: 'ld', label: '.ld', hint: 'telemetry' },
+  { key: 'ldx', label: '.ldx', hint: 'lap summary + setup' },
+  { key: 'svm', label: '.svm', hint: 'setup' },
 ]
-
 const SESSION_TYPES = ['practice', 'qualifying', 'race', 'test']
+const PIPELINE_STEPS = ['pending', 'parsing', 'complete']
 
-function FileSlot({ slot, file, onPick }) {
-  const inputRef = useRef(null)
-  const filled = Boolean(file)
+function extOf(filename) {
+  return filename.toLowerCase().split('.').pop()
+}
+
+function IngestPipeline({ status }) {
+  const idx = status === 'failed' ? 1 : PIPELINE_STEPS.indexOf(status)
   return (
-    <div
-      onClick={() => inputRef.current?.click()}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault()
-        const dropped = e.dataTransfer.files?.[0]
-        if (dropped) onPick(slot.key, dropped)
-      }}
-      style={{
-        flex: 1,
-        border: `1px dashed ${filled ? C.pinkBd : C.line}`,
-        background: filled ? C.pinkBg : C.panel2,
-        borderRadius: 8,
-        padding: '16px 12px',
-        textAlign: 'center',
-        cursor: 'pointer',
-      }}
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        accept={slot.accept}
-        style={{ display: 'none' }}
-        onChange={(e) => e.target.files[0] && onPick(slot.key, e.target.files[0])}
-      />
-      <div style={{ color: filled ? C.pink : C.silver2, fontWeight: 700, fontFamily: font.mono, fontSize: 13 }}>
-        {slot.label}
-      </div>
-      <div style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>{slot.hint}</div>
-      <div style={{ color: filled ? C.silver3 : C.dim, fontSize: 11, marginTop: 8, wordBreak: 'break-all' }}>
-        {filled ? file.name : 'drop or click'}
-      </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {PIPELINE_STEPS.map((s, i) => {
+        const done = i < idx || status === 'complete'
+        const active = i === idx && status !== 'complete'
+        const failed = status === 'failed' && i === 1
+        const col = failed ? C.danger : done ? C.good : active ? C.pink : C.line
+        return (
+          <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: col,
+                  display: 'inline-block',
+                  animation: active ? 'bc-pulse 1.1s infinite' : 'none',
+                }}
+              />
+              <span style={{ fontSize: 9, letterSpacing: 1.5, fontWeight: 700, color: col }}>
+                {failed && i === 1 ? 'FAILED' : s.toUpperCase()}
+              </span>
+            </div>
+            {i < PIPELINE_STEPS.length - 1 && <span style={{ width: 22, height: 1, background: C.line }} />}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -59,26 +64,35 @@ function FileSlot({ slot, file, onPick }) {
 export default function UploadDropzone({ onUploaded, onCancel }) {
   const [files, setFiles] = useState({})
   const [sessionType, setSessionType] = useState('practice')
-  const [busy, setBusy] = useState(false)
+  const [pipeline, setPipeline] = useState('idle') // idle | pending | parsing | complete | failed
+  const [drag, setDrag] = useState(false)
   const [error, setError] = useState('')
+  const inputRef = useRef(null)
 
-  function pick(key, file) {
+  function handleFiles(fileList) {
     setError('')
-    setFiles((f) => ({ ...f, [key]: file }))
+    const next = { ...files }
+    for (const f of fileList) {
+      const ext = extOf(f.name)
+      if (ext === 'ld' || ext === 'ldx' || ext === 'svm') next[ext] = f
+    }
+    setFiles(next)
   }
 
   const complete = SLOTS.every((s) => files[s.key])
+  const busy = pipeline === 'pending' || pipeline === 'parsing'
 
   async function handleUpload() {
-    setBusy(true)
+    setPipeline('pending')
     setError('')
     try {
+      setPipeline('parsing')
       const sessionId = await uploadSession(files, sessionType)
+      setPipeline('complete')
       onUploaded(sessionId)
     } catch (err) {
+      setPipeline('failed')
       setError(err?.message || 'Upload failed. Try again.')
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -93,10 +107,63 @@ export default function UploadDropzone({ onUploaded, onCancel }) {
 
       <Banner kind="error">{error}</Banner>
 
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        {SLOTS.map((s) => (
-          <FileSlot key={s.key} slot={s} file={files[s.key]} onPick={pick} />
-        ))}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={(e) => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files) }}
+        onClick={() => inputRef.current?.click()}
+        style={{
+          border: `1.5px dashed ${drag ? C.pink : C.line}`,
+          borderRadius: 12,
+          background: drag ? C.pinkBg : C.panel2,
+          padding: '26px 22px',
+          textAlign: 'center',
+          cursor: 'pointer',
+          transition: 'all .15s',
+          marginBottom: 12,
+        }}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept=".ld,.ldx,.svm"
+          style={{ display: 'none' }}
+          onChange={(e) => handleFiles(e.target.files)}
+        />
+        <div style={{ fontSize: 13, color: C.silver2, marginBottom: 4 }}>
+          Drop your <b style={{ color: C.pink }}>.ld</b>, <b style={{ color: C.pink }}>.ldx</b> and{' '}
+          <b style={{ color: C.pink }}>.svm</b> files here
+        </div>
+        <div style={{ fontSize: 11, color: C.dim }}>or click to browse · all three required per session</div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+        {SLOTS.map((s) => {
+          const f = files[s.key]
+          return (
+            <div
+              key={s.key}
+              style={{
+                border: `1px solid ${f ? C.pinkBd : C.line}`,
+                background: C.panel2,
+                borderRadius: 8,
+                padding: '11px 13px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: f ? C.pink : C.dim, fontFamily: font.mono }}>
+                  {s.label}
+                </span>
+                <span style={{ fontSize: 13, color: f ? C.good : C.line }}>{f ? '✓' : '○'}</span>
+              </div>
+              <div style={{ fontSize: 9, color: C.dim, marginBottom: 4 }}>{s.hint}</div>
+              <div style={{ fontSize: 9.5, color: f ? C.silver2 : C.dim, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {f ? `${f.name} · ${(f.size / 1024).toFixed(0)} KB` : 'waiting…'}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       <label style={{ display: 'block', marginBottom: 18 }}>
@@ -124,6 +191,12 @@ export default function UploadDropzone({ onUploaded, onCancel }) {
           ))}
         </select>
       </label>
+
+      {pipeline !== 'idle' && (
+        <div style={{ marginBottom: 16 }}>
+          <IngestPipeline status={pipeline} />
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 10 }}>
         <Button onClick={handleUpload} disabled={!complete || busy}>

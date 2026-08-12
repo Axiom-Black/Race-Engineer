@@ -1,51 +1,35 @@
 // ByteCraft Racing — authenticated app shell (S5 back half).
-// View states: list (sessions or empty state) -> upload -> back to list;
-// list -> detail -> back to list. The S5 front half shipped the frame and an
-// honest disabled-upload empty state; this wires the real upload -> parse ->
-// persist -> view loop on top of it, plus demo-session seeding: a brand-new
-// account with zero sessions gets the fixture auto-ingested (S5 plan Step 5)
-// so the dashboard is never empty on first sign-in.
-import { useCallback, useEffect, useRef, useState } from 'react'
+// Navigation modeled on the referenced prototypes' workflow:
+//   - ByteCraft_v12_Merged.jsx DriverApp: header -> tab bar -> tab content
+//     (SESSIONS / RACE ENGINEER / PROGRESSION / LIBRARIES)
+//   - ByteCraft_SessionUpload.jsx: the upload/ingest visual pattern (see
+//     UploadDropzone.jsx, SessionDetail.jsx's channel inventory)
+//   - RaceEngineeringAgent_v2.jsx: the domain-agent structure referenced in
+//     the Race Engineer placeholder (dark this phase, not implemented)
+// Race Engineer and Libraries are genuinely disabled tabs, not faked ones —
+// standing bar: no faked capability; CLAUDE.md: resist shipping the agent
+// early. Their content explains why they're dark rather than pretending
+// to work.
+import { useState } from 'react'
 import { C, font } from '../theme'
 import { useAuth } from '../lib/auth'
-import { Wordmark, Button } from './ui'
-import { listSessions } from '../lib/sessions'
-import { seedDemoSession } from '../lib/demo'
-import UploadDropzone from './UploadDropzone'
-import SessionList from './SessionList'
-import SessionDetail from './SessionDetail'
+import { Wordmark } from './ui'
+import TabBar from './TabBar'
+import SessionsTab from './SessionsTab'
+import ProgressionTab from './ProgressionTab'
+import { RaceEngineerPlaceholder, LibrariesPlaceholder } from './PhasePlaceholder'
+
+const TAB_CONTENT = {
+  sessions: SessionsTab,
+  progression: ProgressionTab,
+  engineer: RaceEngineerPlaceholder,
+  libraries: LibrariesPlaceholder,
+}
 
 export default function AppShell() {
   const { user, signOut } = useAuth()
   const [signingOut, setSigningOut] = useState(false)
-  const [view, setView] = useState('list') // 'list' | 'upload' | 'detail'
-  const [selectedId, setSelectedId] = useState(null)
-  const [sessions, setSessions] = useState(null) // null = loading
-  const [loadError, setLoadError] = useState('')
-  const [seedingDemo, setSeedingDemo] = useState(false)
-  const seedAttempted = useRef(false)
-
-  const refresh = useCallback(() => {
-    listSessions()
-      .then(setSessions)
-      .catch((err) => setLoadError(err.message))
-  }, [])
-
-  useEffect(() => {
-    refresh()
-  }, [refresh])
-
-  // Idempotent by construction: only fires once per mount, and only when the
-  // first real load confirms zero sessions exist for this account.
-  useEffect(() => {
-    if (sessions === null || sessions.length > 0 || seedAttempted.current) return
-    seedAttempted.current = true
-    setSeedingDemo(true)
-    seedDemoSession()
-      .then(refresh)
-      .catch((err) => setLoadError(`Couldn't load your demo session: ${err.message}`))
-      .finally(() => setSeedingDemo(false))
-  }, [sessions, refresh])
+  const [tab, setTab] = useState('sessions')
 
   async function handleSignOut() {
     setSigningOut(true)
@@ -56,13 +40,8 @@ export default function AppShell() {
     }
   }
 
-  function handleUploaded(sessionId) {
-    refresh()
-    setSelectedId(sessionId)
-    setView('detail')
-  }
-
   const initial = (user?.email?.[0] || '?').toUpperCase()
+  const TabContent = TAB_CONTENT[tab]
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, fontFamily: font.ui }}>
@@ -126,93 +105,11 @@ export default function AppShell() {
         </div>
       </header>
 
+      <TabBar active={tab} onChange={setTab} />
+
       <main style={{ maxWidth: 960, margin: '0 auto', padding: '32px 24px' }}>
-        {loadError && <p style={{ color: C.danger, fontSize: 13 }}>{loadError}</p>}
-
-        {sessions === null && !loadError && <p style={{ color: C.dim }}>Loading your garage…</p>}
-
-        {sessions !== null && seedingDemo && (
-          <p style={{ color: C.dim }}>Setting up a demo session so you have something to look at…</p>
-        )}
-
-        {sessions !== null && !seedingDemo && view === 'list' && sessions.length === 0 && (
-          <EmptyState onUploadClick={() => setView('upload')} />
-        )}
-
-        {sessions !== null && view === 'list' && sessions.length > 0 && (
-          <SessionList
-            sessions={sessions}
-            onSelect={(id) => {
-              setSelectedId(id)
-              setView('detail')
-            }}
-            onUploadClick={() => setView('upload')}
-          />
-        )}
-
-        {view === 'upload' && (
-          <UploadDropzone onUploaded={handleUploaded} onCancel={() => setView('list')} />
-        )}
-
-        {view === 'detail' && selectedId && (
-          <SessionDetail sessionId={selectedId} onBack={() => setView('list')} />
-        )}
+        <TabContent />
       </main>
-    </div>
-  )
-}
-
-function EmptyState({ onUploadClick }) {
-  return (
-    <div>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ color: C.silver3, fontSize: 22, fontWeight: 700, margin: '0 0 4px' }}>
-          Your garage
-        </h1>
-        <p style={{ color: C.dim, fontSize: 14, margin: 0 }}>
-          Sessions you upload will appear here.
-        </p>
-      </div>
-      <div
-        style={{
-          border: `1px dashed ${C.line}`,
-          borderRadius: 12,
-          background: C.panel,
-          padding: '48px 32px',
-          textAlign: 'center',
-        }}
-      >
-        <div
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 12,
-            background: C.pinkBg,
-            border: `1px solid ${C.pinkBd}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 18px',
-            fontSize: 26,
-          }}
-          aria-hidden="true"
-        >
-          🏁
-        </div>
-        <h2 style={{ color: C.silver3, fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>
-          Upload your first session
-        </h2>
-        <p style={{ color: C.dim, fontSize: 14, lineHeight: 1.6, maxWidth: 460, margin: '0 auto 22px' }}>
-          Export a session from Le Mans Ultimate as a{' '}
-          <code style={{ fontFamily: font.mono, color: C.silver2 }}>.ld</code> +{' '}
-          <code style={{ fontFamily: font.mono, color: C.silver2 }}>.ldx</code> +{' '}
-          <code style={{ fontFamily: font.mono, color: C.silver2 }}>.svm</code> set. We parse it
-          in your browser and show every channel, lap by lap.
-        </p>
-        <div style={{ maxWidth: 260, margin: '0 auto' }}>
-          <Button onClick={onUploadClick}>Upload session</Button>
-        </div>
-      </div>
     </div>
   )
 }
