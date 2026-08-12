@@ -113,6 +113,7 @@ Each entry: date · what shipped · the method insight worth carrying forward.
 
 | Date | Shipped | Method insight |
 | --- | --- | --- |
+| 12 Aug 2026 | Ring 3 RLS/atomicity gate automated against main's merged S5 schema | **A5 + Codex VI.6.** A parallel session had already merged S5 back-half to `main`. Caught it by rebasing onto `main` (the conflict was the signal), not by assuming my in-flight branch was still needed. Instead of forcing a duplicate, kept only the additive delta — the automated RLS gate — and adapted it to *their* schema. Lesson: before continuing multi-session work, rebase onto `main` first; treat a surprise conflict as "reality moved," and salvage the delta rather than re-landing the overlap. |
 | 12 Aug 2026 | DE Codex added as a live project skill; this breadcrumb file created | Governance becomes real when the standard is an auto-loaded skill in-repo (not a PDF) and the reusable-method log is part of the session ritual. |
 | 12 Aug 2026 | S5 Step 2 — pure `ingest()` module; 27/27 Vitest | A4 (pure core) + A10: a failing invariant test surfaced a genuine modeling bug (session end clipped to one channel's timeline), not a bad test. Fix the model, not the assertion. |
 | 12 Aug 2026 | S5 Step 1 — pilot schema migration + Ring 3 RLS gate | A5: local ephemeral Postgres + an `auth.uid()` shim turned RLS/atomicity into assertions that ran *before* the push and now run in CI. |
