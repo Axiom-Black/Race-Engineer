@@ -65,8 +65,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install test dependencies
-        run: pip install pytest pytest-cov numpy
+      - name: Install backend + test dependencies
+        # Install the backend's declared deps (pyproject) rather than a
+        # hand-picked list — the numpy-only list silently dropped pandas,
+        # which app/analysis/lap_analysis.py imports, breaking collection.
+        working-directory: backend
+        run: pip install -e ".[dev]"
       - name: Run backend unit suite against the fixture
         working-directory: backend
         run: python -m pytest tests/unit/ -q
