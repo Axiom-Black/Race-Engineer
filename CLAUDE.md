@@ -11,6 +11,14 @@ phases — receive AI race-engineering debriefs from a ten-agent system.
 
 ## Read these first, in this order
 
+> **Governing standard.** The **Axiom Black DE Codex**
+> (`.claude/skills/axiomblack-de-codex/`) is the binding engineering standard
+> for all code in this repo — it auto-loads as a skill; conform to it by
+> default and flag any divergence per its amendment protocol. Reusable *build
+> methods* are recorded in `docs/BUILD_BREADCRUMBS.md` — read Part A before
+> starting new work, and append to it every session (the goal is compounding
+> efficiency across builds).
+
 1. `WORKING_PLAN.md` — the operational tracker. §0 status, §3 current stories,
    §4 standing bars (non-negotiable invariants), §5 decision log. **Update §0
    and §5 every work session — if it isn't written there, it didn't happen.**
@@ -167,6 +175,8 @@ synthesizer output on the real COTA session. Keep model choice isolated behind
 
 ## Session ritual
 
-Start: read WORKING_PLAN §0/§3. Work the smallest increment that leaves
-something a driver would pay for. End: update WORKING_PLAN §0 and §5, run the
-gates, commit. Cut scope before cutting quality.
+Start: load the **DE Codex** (governs the work) and read WORKING_PLAN §0/§3 +
+`docs/BUILD_BREADCRUMBS.md` Part A. Work the smallest increment that leaves
+something a driver would pay for. End: update WORKING_PLAN §0 and §5, append a
+`BUILD_BREADCRUMBS.md` trail entry (promote anything durable into Part A), run
+the gates, commit. Cut scope before cutting quality.
