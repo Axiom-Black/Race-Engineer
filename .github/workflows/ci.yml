@@ -37,13 +37,31 @@ jobs:
               || { echo "::error::fixture .$ext hash not recorded in FIXTURE_NOTES.md — regenerate golden masters"; exit 1; }
           done
 
-      - name: "G0.2 — no raw telemetry outside fixtures/"
+      - name: "G0.2 — no raw telemetry outside sanitized locations"
         run: |
-          stray=$(git ls-files '*.ld' '*.ldx' '*.svm' | grep -v '^fixtures/' || true)
+          # The sanitized fixture also lives under frontend/public/fixtures/ so
+          # the browser can fetch() it for the zero-cost demo session. That copy
+          # is the SAME driver-redacted bytes (asserted byte-identical below),
+          # so both locations are allowed — nothing else is.
+          stray=$(git ls-files '*.ld' '*.ldx' '*.svm' \
+            | grep -vE '^(fixtures/|frontend/public/fixtures/)' || true)
           if [ -n "$stray" ]; then
-            echo "::error::telemetry export outside fixtures/ (may carry driver PII): $stray"
+            echo "::error::telemetry export outside sanitized locations (may carry driver PII): $stray"
             exit 1
           fi
+
+      - name: "G0.2 — public fixture copy is byte-identical to the canonical fixture"
+        run: |
+          for ext in ld ldx svm; do
+            pub="frontend/public/fixtures/cota_gte_sanitized.$ext"
+            [ -f "$pub" ] || continue
+            a=$(sha256sum "fixtures/cota_gte_sanitized.$ext" | cut -d' ' -f1)
+            b=$(sha256sum "$pub" | cut -d' ' -f1)
+            if [ "$a" != "$b" ]; then
+              echo "::error::$pub differs from the canonical fixtures/ copy — a served copy must be the same sanitized bytes"
+              exit 1
+            fi
+          done
 
       - name: "G0.2 — fixture driver field is scrubbed"
         run: |
