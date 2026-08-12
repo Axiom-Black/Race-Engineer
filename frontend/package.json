@@ -24,6 +24,7 @@
     "vitest": "^4.1.10"
   },
   "optionalDependencies": {
+    "@oxlint/binding-win32-x64-msvc": "^1.77.0",
     "@rolldown/binding-win32-x64-msvc": "^1.2.3"
   }
 }

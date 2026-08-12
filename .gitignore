@@ -1,12 +1,19 @@
 # --- Real LMU telemetry exports contain driver PII: NEVER commit them. ---
 # The only telemetry allowed in the repo is the sanitized fixture triple
-# (Ring 0, TESTING_GATES.md G0.1/G0.2), explicitly re-included below.
+# (Ring 0, TESTING_GATES.md G0.1/G0.2). It's explicitly re-included below in
+# two places: fixtures/ (CI's Ring 0/1/4 truth data) and
+# frontend/public/fixtures/ (a duplicate copy so the browser can fetch() it
+# for demo-session seeding — see frontend/src/lib/demo.js). Both copies are
+# the same already-sanitized triple; this is not a new PII surface.
 *.ld
 *.ldx
 *.svm
 !fixtures/*.ld
 !fixtures/*.ldx
 !fixtures/*.svm
+!frontend/public/fixtures/*.ld
+!frontend/public/fixtures/*.ldx
+!frontend/public/fixtures/*.svm
 
 # Dependencies & build output
 node_modules/
