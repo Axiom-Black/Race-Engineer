@@ -9,7 +9,7 @@
 -- `apply_migration`, before this repo had a supabase/migrations/ directory.
 -- Filename matches the version already recorded in the project's migration
 -- history so `supabase migration list` reconciles cleanly. Do not re-run —
--- see 20260812000000_s5_trace_and_demo_schema.sql for what changed since.
+-- see 20260812030000_s5_trace_and_demo_schema.sql for what changed since.
 
 -- ── sessions ─────────────────────────────────────────────────────
 create table public.sessions (

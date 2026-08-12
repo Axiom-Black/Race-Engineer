@@ -15,12 +15,18 @@ const BUCKET = 'telemetry'
  * Parse a matched .ld/.ldx/.svm triple and persist it for the signed-in user.
  *
  * Ordering matters for the atomicity standing bar: the session row is
- * inserted `pending` (claiming the dedup slot on ld_sha256 up front, so a
- * double-submit fails fast with no upload work done), then raw files and the
- * trace blob upload, laps insert, and only then does the row flip to
- * `complete` with all four storage paths set. If anything after the initial
- * insert fails, the row stays `pending` rather than lying about being
- * complete (G3.4: `complete` requires ld/ldx/svm/trace paths all present).
+ * inserted `pending` (claiming the dedup slot on ld_sha256 up front), then raw
+ * files and the trace blob upload, laps insert, and only then does the row flip
+ * to `complete` with all four storage paths set (G3.4: `complete` requires
+ * ld/ldx/svm/trace paths all present).
+ *
+ * If anything after the initial insert fails, the attempt is rolled back —
+ * the `pending` row is deleted (cascade-dropping any laps) and uploaded objects
+ * are removed — so a transient failure leaves no orphaned storage and does NOT
+ * keep the dedup slot. Without this rollback a single transient error would lock
+ * the user out of that file forever (retry → 23505 → "already uploaded") and
+ * would brick a new account whose demo seed half-failed. Uploads use `upsert`
+ * so a retry after a partial upload doesn't 409.
  *
  * @param {{ld: File, ldx: File, svm: File}} files
  * @param {string} sessionType - user-supplied context (LMU exposes no
@@ -74,41 +80,70 @@ export async function uploadSession(files, sessionType, { isDemo = false } = {})
   }
 
   const traceBlob = new Blob([JSON.stringify(parsed.trace)], { type: 'application/json' })
-  const uploads = await Promise.all([
-    supabase.storage.from(BUCKET).upload(`${basePath}/session.ld`, files.ld),
-    supabase.storage.from(BUCKET).upload(`${basePath}/session.ldx`, files.ldx),
-    supabase.storage.from(BUCKET).upload(`${basePath}/session.svm`, files.svm),
-    supabase.storage.from(BUCKET).upload(`${basePath}/trace.json`, traceBlob),
-  ])
-  const uploadErr = uploads.find((r) => r.error)?.error
-  if (uploadErr) throw uploadErr
+  try {
+    const uploads = await Promise.all([
+      supabase.storage.from(BUCKET).upload(`${basePath}/session.ld`, files.ld, { upsert: true }),
+      supabase.storage.from(BUCKET).upload(`${basePath}/session.ldx`, files.ldx, { upsert: true }),
+      supabase.storage.from(BUCKET).upload(`${basePath}/session.svm`, files.svm, { upsert: true }),
+      supabase.storage.from(BUCKET).upload(`${basePath}/trace.json`, traceBlob, { upsert: true }),
+    ])
+    const uploadErr = uploads.find((r) => r.error)?.error
+    if (uploadErr) throw uploadErr
 
-  if (parsed.laps.length) {
-    const { error: lapsErr } = await supabase.from('laps').insert(
-      parsed.laps.map((l) => ({
-        session_id: sessionId,
-        lap_no: l.lapNo,
-        lap_time_s: l.lapTimeS,
-        valid: l.valid,
-        summary: l.summary,
-      })),
-    )
-    if (lapsErr) throw lapsErr
+    if (parsed.laps.length) {
+      const { error: lapsErr } = await supabase.from('laps').insert(
+        parsed.laps.map((l) => ({
+          session_id: sessionId,
+          lap_no: l.lapNo,
+          lap_time_s: l.lapTimeS,
+          valid: l.valid,
+          summary: l.summary,
+        })),
+      )
+      if (lapsErr) throw lapsErr
+    }
+
+    const { error: completeErr } = await supabase
+      .from('sessions')
+      .update({
+        ld_path: `${basePath}/session.ld`,
+        ldx_path: `${basePath}/session.ldx`,
+        svm_path: `${basePath}/session.svm`,
+        trace_path: `${basePath}/trace.json`,
+        ingest_status: 'complete',
+      })
+      .eq('id', sessionId)
+    if (completeErr) throw completeErr
+
+    return sessionId
+  } catch (err) {
+    // Roll back so the failure doesn't hold the dedup slot or orphan storage.
+    await rollbackSession(sessionId, basePath)
+    throw err
   }
+}
 
-  const { error: completeErr } = await supabase
-    .from('sessions')
-    .update({
-      ld_path: `${basePath}/session.ld`,
-      ldx_path: `${basePath}/session.ldx`,
-      svm_path: `${basePath}/session.svm`,
-      trace_path: `${basePath}/trace.json`,
-      ingest_status: 'complete',
-    })
-    .eq('id', sessionId)
-  if (completeErr) throw completeErr
-
-  return sessionId
+/**
+ * Best-effort rollback of a failed upload: remove any uploaded objects and
+ * delete the pending row (which cascade-drops its laps), so a retry isn't
+ * blocked by the dedup constraint and nothing is orphaned. Cleanup failures are
+ * logged, not thrown — the caller must surface the ORIGINAL error, not a
+ * secondary cleanup one.
+ */
+async function rollbackSession(sessionId, basePath) {
+  try {
+    await supabase.storage
+      .from(BUCKET)
+      .remove([
+        `${basePath}/session.ld`,
+        `${basePath}/session.ldx`,
+        `${basePath}/session.svm`,
+        `${basePath}/trace.json`,
+      ])
+    await supabase.from('sessions').delete().eq('id', sessionId)
+  } catch (cleanupErr) {
+    console.warn('uploadSession rollback failed; a pending row may remain', cleanupErr)
+  }
 }
 
 /** List the signed-in user's complete sessions, most recent first. */

@@ -42,20 +42,41 @@ function nearestSample(ch, t) {
   return ch.samples[idx]
 }
 
+/**
+ * Single-pass min/max. `Math.min(...arr)` / `Math.max(...arr)` spread the whole
+ * array onto the call stack and throw `RangeError: Maximum call stack size
+ * exceeded` once it exceeds ~100k elements — which a real multi-lap/endurance
+ * export reaches on a single 50 Hz channel. The truncated fixture (300 samples)
+ * never hits it, so this must be verified against real files, not the fixture.
+ */
+export function extent(arr) {
+  let min = Infinity
+  let max = -Infinity
+  for (let i = 0; i < arr.length; i++) {
+    const v = arr[i]
+    if (v < min) min = v
+    if (v > max) max = v
+  }
+  return arr.length ? { min, max } : { min: null, max: null }
+}
+
 /** Build the per-channel inventory persisted as sessions.summary.channels. */
 function buildChannelSummary(ld) {
   return Object.values(ld.channels)
-    .map((ch) => ({
-      name: ch.name,
-      unit: ch.unit,
-      domain: domainOf(ch.name),
-      sampleRateHz: ch.sampleRateHz,
-      sampleCount: ch.sampleCount,
-      min: ch.samples.length ? Math.min(...ch.samples) : null,
-      max: ch.samples.length ? Math.max(...ch.samples) : null,
-      reliable: ch.reliable,
-      allZero: ch.allZero,
-    }))
+    .map((ch) => {
+      const { min, max } = extent(ch.samples)
+      return {
+        name: ch.name,
+        unit: ch.unit,
+        domain: domainOf(ch.name),
+        sampleRateHz: ch.sampleRateHz,
+        sampleCount: ch.sampleCount,
+        min,
+        max,
+        reliable: ch.reliable,
+        allZero: ch.allZero,
+      }
+    })
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -75,9 +96,10 @@ function buildLapChannelSummary(ld, startS, endS) {
     const i1 = endS == null ? ch.samples.length : Math.min(ch.samples.length, Math.floor(endS * rate))
     const values = ch.samples.slice(i0, i1)
     if (!values.length) continue
+    const { min, max } = extent(values)
     out.channels[ch.name] = {
-      min: Math.min(...values),
-      max: Math.max(...values),
+      min,
+      max,
       avg: Number((values.reduce((a, v) => a + v, 0) / values.length).toFixed(4)),
     }
     if (ch.allZero) out.emptyChannels.push(ch.name)
@@ -177,12 +199,9 @@ function sessionGpsBounds(ld) {
   const lons = ld.channels['GPS Longitude']?.samples ?? []
   const lats = ld.channels['GPS Latitude']?.samples ?? []
   if (!lons.length || !lats.length) return { lonMin: 0, lonMax: 1, latMin: 0, latMax: 1 }
-  return {
-    lonMin: Math.min(...lons),
-    lonMax: Math.max(...lons),
-    latMin: Math.min(...lats),
-    latMax: Math.max(...lats),
-  }
+  const lon = extent(lons)
+  const lat = extent(lats)
+  return { lonMin: lon.min, lonMax: lon.max, latMin: lat.min, latMax: lat.max }
 }
 
 /** Parse "dd/mm/yyyy" + "HH:MM:SS" (.ld header format) into an ISO timestamp. */
@@ -232,8 +251,10 @@ export async function parseSessionFiles({ ldBytes, ldxText, svmText }) {
 
   const lons = ld.channels['GPS Longitude']?.samples ?? []
   const lats = ld.channels['GPS Latitude']?.samples ?? []
-  const lonSpanDeg = (Math.max(...lons, 0) - Math.min(...lons, 0)) || 1
-  const latSpanDeg = (Math.max(...lats, 0) - Math.min(...lats, 0)) || 1
+  const lonE = extent(lons)
+  const latE = extent(lats)
+  const lonSpanDeg = (lons.length ? lonE.max - lonE.min : 0) || 1
+  const latSpanDeg = (lats.length ? latE.max - latE.min : 0) || 1
 
   return {
     ldSha256: await sha256Hex(ldBytes),
