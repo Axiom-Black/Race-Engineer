@@ -12,7 +12,7 @@ import { listSessions } from '../lib/sessions'
 import { seedDemoSession } from '../lib/demo'
 import UploadDropzone from './UploadDropzone'
 import SessionList from './SessionList'
-import SessionDetail from './SessionDetail'
+import SessionReport from './SessionReport'
 
 export default function SessionsTab() {
   const [view, setView] = useState('list') // 'list' | 'upload' | 'detail'
@@ -80,7 +80,7 @@ export default function SessionsTab() {
       )}
 
       {view === 'detail' && selectedId && (
-        <SessionDetail sessionId={selectedId} onBack={() => setView('list')} />
+        <SessionReport sessionId={selectedId} onBack={() => setView('list')} />
       )}
     </>
   )
