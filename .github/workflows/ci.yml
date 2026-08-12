@@ -1,7 +1,8 @@
-# ByteCraft Racing — Testing Gates CI (TESTING_GATES.md, Ring 0–1)
-# Rings promote inward: Ring 0 must be green before Ring 1 runs.
-# Rings 2–4 activate as their subjects become real (agent = Phase 2;
-# JS golden-master parity lands with S3 in frontend/ as Vitest).
+# ByteCraft Racing — Testing Gates CI (TESTING_GATES.md, Ring 0–1 + Ring 4)
+# Rings promote inward: Ring 0 must be green before Ring 1 runs, and
+# Ring 4 (JS golden-master parity, Vitest) runs after Ring 1.
+# Ring 2 (agent contracts) activates in Phase 2; Ring 3 (RLS) is enforced
+# in the Supabase project itself and verified per-change at the DB layer.
 
 name: gates
 
@@ -69,3 +70,26 @@ jobs:
       - name: Run backend unit suite against the fixture
         working-directory: backend
         run: python -m pytest tests/unit/ -q
+
+  ring4-golden-master-parity:
+    name: "Ring 4 · JS golden-master parity (G4.1–G4.3)"
+    needs: ring1-parser-truth
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: |
+          npm ci --no-fund --no-audit
+          # Guard against the npm optional-deps bug (npm/cli#4828): make sure
+          # rolldown's platform binding actually landed before vitest needs it.
+          node -e "require('rolldown')" 2>/dev/null \
+            || npm install --no-save --force @rolldown/binding-linux-x64-gnu
+      - name: Run golden-master suite (Vitest)
+        working-directory: frontend
+        run: npx vitest run
