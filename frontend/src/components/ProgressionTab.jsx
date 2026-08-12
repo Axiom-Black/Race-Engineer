@@ -31,6 +31,10 @@ function tierFor(gap, tiers) {
 function groupCombos(sessions) {
   const map = new Map()
   for (const s of sessions) {
+    // The seeded demo session is sample data — it must not count toward a
+    // driver's real gap/trend/best (standing bar: don't mix fabricated-looking
+    // data into honest stats). It still shows in the Sessions list.
+    if (s.is_demo) continue
     if (s.fastest_lap_s == null) continue
     const key = `${s.venue}|${s.car}|${s.session_type}`
     if (!map.has(key)) map.set(key, { venue: s.venue, car: s.car, sessionType: s.session_type, runs: [] })
