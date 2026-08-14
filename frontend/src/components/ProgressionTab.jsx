@@ -5,7 +5,7 @@
 //
 // One honest difference from the prototype: v12_Merged computes "gap to
 // IDEAL" against a curated reference-lap-time library. That library is a
-// Phase 2+ concept (docs/S5_IMPLEMENTATION_PLAN.md's "Ideal Session Data")
+// Phase 2+ concept (docs/s5-implementation-plan.md's "Ideal Session Data")
 // that doesn't exist yet — faking a target time would violate the standing
 // bar against faked capability. This shows "gap to YOUR best" instead: a
 // real, computable metric from data that actually exists.

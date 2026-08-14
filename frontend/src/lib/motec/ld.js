@@ -1,7 +1,7 @@
 // MoTeC .ld binary telemetry parser — LMU exports.
 // JS port of the verified Python reference (backend/app/ingest/motec.py).
 // Every offset was confirmed by byte inspection of a real LMU export; see
-// docs/MoTeC_LD_format_findings.md and fixtures/FIXTURE_NOTES.md.
+// docs/motec-ld-format.md and fixtures/FIXTURE_NOTES.md.
 //
 // DECODE FORMULA (complete — G1.1):
 //

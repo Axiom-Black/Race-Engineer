@@ -15,21 +15,22 @@ phases — receive AI race-engineering debriefs from a ten-agent system.
 > (`.claude/skills/axiomblack-de-codex/`) is the binding engineering standard
 > for all code in this repo — it auto-loads as a skill; conform to it by
 > default and flag any divergence per its amendment protocol. Reusable *build
-> methods* are recorded in `docs/BUILD_BREADCRUMBS.md` — read Part A before
+> methods* are recorded in `docs/build-breadcrumbs.md` — read Part A before
 > starting new work, and append to it every session (the goal is compounding
-> efficiency across builds).
+> efficiency across builds). Layout, file-naming, branch and PR conventions
+> live in `CONTRIBUTING.md`.
 
 1. `WORKING_PLAN.md` — the operational tracker. §0 status, §3 current stories,
    §4 standing bars (non-negotiable invariants), §5 decision log. **Update §0
    and §5 every work session — if it isn't written there, it didn't happen.**
 2. `TESTING_GATES.md` — the Ring 0–4 promotion contract. Every push to `main`
    clears these gates or it doesn't push.
-3. `docs/ByteCraft_Racing_Phase_Plan.md` — strategic phasing with acceptance
+3. `docs/phase-plan.md` — strategic phasing with acceptance
    criteria (Phase 0 done, Phase 1 = current).
-4. `docs/MoTeC_LD_format_findings.md` — byte-level reference for the
+4. `docs/motec-ld-format.md` — byte-level reference for the
    `.ld`/`.ldx` binary decode. The parsers are grounded in this document; do
    not "improve" parser logic from assumptions, only from real-file evidence.
-5. `docs/ByteCraft_AI_Cost_Model.md` — unit economics. Governs all Phase 2
+5. `docs/ai-cost-model.md` — unit economics. Governs all Phase 2
    agent work (model tiering, caching, metering).
 
 ## Current mission — Tier 1 Pilot (Phase 1: Launch)
@@ -176,7 +177,7 @@ synthesizer output on the real COTA session. Keep model choice isolated behind
 ## Session ritual
 
 Start: load the **DE Codex** (governs the work) and read WORKING_PLAN §0/§3 +
-`docs/BUILD_BREADCRUMBS.md` Part A. Work the smallest increment that leaves
+`docs/build-breadcrumbs.md` Part A. Work the smallest increment that leaves
 something a driver would pay for. End: update WORKING_PLAN §0 and §5, append a
-`BUILD_BREADCRUMBS.md` trail entry (promote anything durable into Part A), run
+`build-breadcrumbs.md` trail entry (promote anything durable into Part A), run
 the gates, commit. Cut scope before cutting quality.

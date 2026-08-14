@@ -1,7 +1,7 @@
 -- ByteCraft Racing — S5 back-half reconciliation.
 --
 -- Converges the live pilot schema onto the data contract frozen in
--- docs/S5_IMPLEMENTATION_PLAN.md, decided in parallel with (and independent
+-- docs/s5-implementation-plan.md, decided in parallel with (and independent
 -- of) the S4 schema this ALTERs. See WORKING_PLAN.md §5, 12 Aug 2026 entry,
 -- for the reconciliation decision this migration executes.
 --

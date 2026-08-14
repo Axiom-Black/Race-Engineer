@@ -5,7 +5,7 @@
 // Trace data lives in ONE trace.json blob per session in Storage, not in
 // Postgres (free-tier Postgres has a 500 MB cap; per-lap ~400-pt traces
 // belong in Storage). Postgres holds session + lap SUMMARIES only —
-// docs/S5_IMPLEMENTATION_PLAN.md's frozen data contract.
+// docs/s5-implementation-plan.md's frozen data contract.
 import { supabase } from './supabase'
 import { parseSessionFiles } from './ingest'
 

@@ -3,7 +3,7 @@ MoTeC .ld binary telemetry parser — LMU exports.
 
 Every offset in this file was confirmed by direct byte inspection of a real
 LMU export (COTA, Ferrari 488 GTE, 2026-06-30), not taken from a generic
-spec. See MoTeC_LD_format_findings.md for the full derivation.
+spec. See motec-ld-format.md for the full derivation.
 
 DECODE FORMULA (confirmed against known physical ranges):
 
