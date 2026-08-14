@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { C, font } from '../theme'
 import { getSession, getSessionTrace } from '../lib/sessions'
 import { deltaTrace, fmtDelta } from '../lib/delta'
+import { formatSessionDateTime } from '../lib/sessionTime'
 
 const TABS = ['Summary', 'Performance', 'Instruments', 'Track Map']
 
@@ -349,7 +350,7 @@ export default function SessionReport({ sessionId, onBack }) {
       </h1>
       <p style={{ color: C.dim, fontSize: 13, margin: '0 0 16px' }}>
         {session.car_class} · {session.ruleset} · {session.session_type} ·{' '}
-        {session.recorded_at ? new Date(session.recorded_at).toLocaleString() : '—'}
+        {formatSessionDateTime(session.recorded_at)}
       </p>
 
       {/* lap selector + tab bar */}

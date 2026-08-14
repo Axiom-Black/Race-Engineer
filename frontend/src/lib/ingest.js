@@ -224,6 +224,16 @@ function sessionGpsBounds(ld) {
 }
 
 /** Parse "dd/mm/yyyy" + "HH:MM:SS" (.ld header format) into an ISO timestamp. */
+/**
+ * Parse the .ld header's "dd/mm/yyyy" + "HH:MM:SS" into an ISO timestamp.
+ *
+ * The header carries NO timezone — it is a wall-clock reading. We store the UTC
+ * instant with those same digits, which keeps sessions correctly ORDERED
+ * without inventing a zone we do not have. The cost is that `recorded_at` must
+ * always be RENDERED in UTC: see lib/sessionTime.js, which is the only place
+ * allowed to format it. Converting it to a viewer's local zone shifts a 19:32
+ * session to "3:32 PM" in US Eastern.
+ */
 function parseRecordedAt(dateStr, timeStr) {
   if (!dateStr) return null
   const [d, m, y] = dateStr.split('/').map(Number)
