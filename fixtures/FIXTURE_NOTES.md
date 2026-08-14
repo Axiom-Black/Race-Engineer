@@ -4,7 +4,7 @@
    byte inspection of the real export — `0x9C`/`0x9D` are `\x00`, and the name
    string's first byte lands at `0x9E`. The findings-doc table previously said
    `0xA0` (off by two); `CLAUDE.md`, the JS parser, and the Python reference
-   parser's `_DRIVER_OFFSET = 0x9E` were right. `docs/MoTeC_LD_format_findings.md`
+   parser's `_DRIVER_OFFSET = 0x9E` were right. `docs/motec-ld-format.md`
    is corrected to match.
 
 2. **Name field scrubbed, no other PII remains.** The 64-byte driver-name field
@@ -16,7 +16,7 @@
    Verified with a recursive case-insensitive grep for the real name across
    `fixtures/`, `backend/`, and the rest of the tree (see step 5 below) — the
    only two hits were the two source materials received (a duplicated
-   `MoTeC_LD_format_findings.md` and `backend/tests/unit/test_motec_parser.py`
+   `motec-ld-format.md` and `backend/tests/unit/test_motec_parser.py`
    from the scaffold zip), both scrubbed before anything was committed. GPS
    channels are left as-is — they're game-world coordinates, not real-world
    PII (see `CLAUDE.md`).

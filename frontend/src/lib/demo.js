@@ -1,4 +1,4 @@
-// ByteCraft Racing — demo-session seeding (S5 back half, docs/S5_IMPLEMENTATION_PLAN.md Step 5).
+// ByteCraft Racing — demo-session seeding (S5 back half, docs/s5-implementation-plan.md Step 5).
 // A brand-new account lands on a populated dashboard with zero uploads: on
 // first sign-in we fetch the already-sanitized fixture (served from
 // public/fixtures/ — same triple committed for CI, safe to ship) and run it

@@ -2,7 +2,7 @@
 // Pure parse+summarize logic, kept separate from Supabase I/O (lib/sessions.js)
 // so it's unit-testable against the fixture the same way the S3 parsers are.
 //
-// Data contract frozen in docs/S5_IMPLEMENTATION_PLAN.md: each lap resamples
+// Data contract frozen in docs/s5-implementation-plan.md: each lap resamples
 // to ~400 points along normalized TRACK DISTANCE (not time). Distance
 // alignment is what lets two laps of different duration overlay meaningfully
 // on the Track Map (S6) and a lap-vs-lap delta trace (S8) — resampling by

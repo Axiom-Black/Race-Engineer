@@ -2,7 +2,7 @@
 
 > **Archived.** This is the project's origin document (Axiom Black, v1.0 Draft, 2026),
 > preserved for provenance. It predates the ByteCraft Racing identity, the LMU focus,
-> the AI agent system, and the Supabase/Vercel stack — see `docs/ByteCraft_Racing_Phase_Plan.md`
+> the AI agent system, and the Supabase/Vercel stack — see `docs/phase-plan.md`
 > and the repo-root `CLAUDE.md` for what superseded it.
 > (Recovered as text from the original upload, which was a page-image bundle
 > mislabeled as a PDF.)

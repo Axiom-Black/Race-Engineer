@@ -2,7 +2,7 @@
 // gate (that's Ring 4, scoped to the raw parsers); this checks the ingest
 // layer built on top of them: session metadata, lap segmentation, the
 // per-channel summary that carries reliable/allZero flags into persistence,
-// and the distance-resampled trace blob (docs/S5_IMPLEMENTATION_PLAN.md's
+// and the distance-resampled trace blob (docs/s5-implementation-plan.md's
 // frozen data contract).
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
