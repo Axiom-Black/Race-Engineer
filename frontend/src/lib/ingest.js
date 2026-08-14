@@ -60,6 +60,25 @@ export function extent(arr) {
   return arr.length ? { min, max } : { min: null, max: null }
 }
 
+/**
+ * Classify each lap segment by position: 'out' | 'timed' | 'partial'.
+ *
+ * The first segment begins wherever the recording started — not at a line
+ * crossing — so its duration is an out-lap, not a lap time. The last segment
+ * has no closing crossing, so it is partial. Only segments bounded by two
+ * crossings are timed laps.
+ *
+ * Cross-validated against the .ldx on the real COTA export (Codex I.3): 5
+ * segments -> 3 timed laps, exactly the .ldx's "Total Laps 3", and the fastest
+ * of those is lap 2, exactly its "Fastest Lap 2". Before this rule the out-lap
+ * surfaced as a valid 174.3 s lap — a time the driver never set.
+ */
+export function classifyLapSegments(count) {
+  return Array.from({ length: count }, (_, i) =>
+    i === count - 1 ? 'partial' : i === 0 ? 'out' : 'timed',
+  )
+}
+
 /** Build the per-channel inventory persisted as sessions.summary.channels. */
 function buildChannelSummary(ld) {
   return Object.values(ld.channels)
@@ -232,19 +251,31 @@ export async function parseSessionFiles({ ldBytes, ldxText, svmText }) {
   const tracePts = []
   let maxDistanceM = 0
 
+  const kinds = classifyLapSegments(bounds.length)
+
   bounds.forEach((b, i) => {
     const next = bounds[i + 1]
     const endS = next?.startS ?? null
-    const lapTimeS = endS != null ? Number((endS - b.startS).toFixed(3)) : null
+    // Raw wall-clock span of the segment. This is NOT automatically a lap time.
+    const durationS = endS != null ? Number((endS - b.startS).toFixed(3)) : null
+
+    const kind = kinds[i]
+    const lapTimeS = kind === 'timed' ? durationS : null
 
     const { pts, distanceM } = buildLapPoints(ld, b.startS, endS, gpsBounds)
-    maxDistanceM = Math.max(maxDistanceM, distanceM)
+    // Circuit length comes from complete laps only — an out-lap includes the
+    // pit exit and a partial lap is short, so neither measures the track.
+    if (kind === 'timed') maxDistanceM = Math.max(maxDistanceM, distanceM)
 
     laps.push({
       lapNo: b.lap,
       lapTimeS,
-      valid: lapTimeS != null,
-      summary: buildLapChannelSummary(ld, b.startS, endS),
+      valid: kind === 'timed',
+      kind,
+      durationS,
+      // kind/durationS ride in the summary jsonb so the UI can label the row
+      // without a schema migration.
+      summary: { ...buildLapChannelSummary(ld, b.startS, endS), kind, durationS },
     })
     tracePts.push({ lap: b.lap, time: lapTimeS, pts })
   })
