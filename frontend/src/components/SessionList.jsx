@@ -1,5 +1,6 @@
 // ByteCraft Racing — session list (S5 back half).
 import { C, font } from '../theme'
+import { formatSessionDate } from '../lib/sessionTime'
 
 function fmtTime(s) {
   if (s == null) return '—'
@@ -8,10 +9,7 @@ function fmtTime(s) {
   return `${m}:${rest}`
 }
 
-function fmtDate(iso) {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
+
 
 export default function SessionList({ sessions, onSelect, onUploadClick }) {
   return (
@@ -66,7 +64,7 @@ export default function SessionList({ sessions, onSelect, onUploadClick }) {
                 )}
               </div>
               <div style={{ color: C.dim, fontSize: 12, marginTop: 3 }}>
-                {s.session_type} · {fmtDate(s.recorded_at)} · {s.car_class || ''}
+                {s.session_type} · {formatSessionDate(s.recorded_at)} · {s.car_class || ''}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
