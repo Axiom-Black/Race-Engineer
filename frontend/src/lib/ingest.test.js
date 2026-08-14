@@ -117,11 +117,28 @@ describe('parseSessionFiles', () => {
     expect(s.setup.svmSections.CONTROLS.BrakePressureSetting.value).toBe('68 kgf  (85%)')
   })
 
-  it('computes a plausible lengthKm from the integrated Ground Speed distance', async () => {
+  it('reports no lengthKm when the session contains no complete lap', async () => {
     const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
-    // Truncated fixture, not a full lap -- just check it's a small positive
-    // number, not that it matches COTA's real ~5.5 km lap length.
-    expect(s.lengthKm).toBeGreaterThan(0)
-    expect(s.lengthKm).toBeLessThan(10)
+    // The fixture is a single segment with no closing line crossing, so it is
+    // a PARTIAL lap. Circuit length is only measurable from a lap bounded by
+    // two crossings; deriving it from a partial segment produced a number that
+    // looked authoritative but wasn't. Null is the honest answer.
+    expect(s.laps).toHaveLength(1)
+    expect(s.laps[0].kind).toBe('partial')
+    expect(s.lengthKm).toBeNull()
+  })
+
+  it('classifies out-lap / timed / partial segments and only times the timed ones', async () => {
+    // Synthetic boundaries: the classification rule is about segment POSITION,
+    // so it is provable without a multi-lap fixture (the committed one has a
+    // single segment). Verified against the real COTA export separately: 5
+    // segments -> 3 timed laps, matching the .ldx's Total Laps 3 / Fastest 2.
+    const { classifyLapSegments } = await import('./ingest.js')
+    const kinds = classifyLapSegments(5)
+    expect(kinds).toEqual(['out', 'timed', 'timed', 'timed', 'partial'])
+    // Degenerate cases must not invent a timed lap.
+    expect(classifyLapSegments(1)).toEqual(['partial'])
+    expect(classifyLapSegments(2)).toEqual(['out', 'partial'])
+    expect(classifyLapSegments(0)).toEqual([])
   })
 })

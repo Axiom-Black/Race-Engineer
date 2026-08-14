@@ -24,6 +24,22 @@ function fmtTime(s) {
   return `${m}:${(s % 60).toFixed(3).padStart(6, '0')}`
 }
 const n1 = (v) => (v == null ? '—' : v.toFixed(1))
+
+/**
+ * A lap segment is only a lap time if it is bounded by two line crossings.
+ * The out-lap (recording start -> first crossing) and the trailing partial lap
+ * are shown but never presented as lap times — showing the out-lap's raw
+ * duration as "2:54.300" told the driver they set a lap they never set.
+ * `kind` rides in the summary jsonb (see lib/ingest.js).
+ */
+function kindOf(l) {
+  return l.summary?.kind ?? (l.valid ? 'timed' : 'partial')
+}
+function lapLabel(l) {
+  const k = kindOf(l)
+  if (k === 'timed') return fmtTime(l.lap_time_s)
+  return k === 'out' ? 'out-lap — not timed' : 'partial — no finish crossing'
+}
 const n2 = (v) => (v == null ? '—' : v.toFixed(2))
 
 // ── tiny UI atoms ─────────────────────────────────────────────────
@@ -347,7 +363,7 @@ export default function SessionReport({ sessionId, onBack }) {
           >
             {laps.map((l) => (
               <option key={l.id} value={l.lap_no}>
-                Lap {l.lap_no}{session.fastest_lap_no === l.lap_no ? ' ★' : ''} — {l.valid ? fmtTime(l.lap_time_s) : 'in progress'}
+                Lap {l.lap_no}{session.fastest_lap_no === l.lap_no ? ' ★' : ''} — {lapLabel(l)}
               </option>
             ))}
           </select>
@@ -459,8 +475,16 @@ function SummaryTab({ session, laps, channels, flagged, metrics, traceLap, domai
           const best = session.fastest_lap_no === l.lap_no
           return (
             <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', borderBottom: `1px solid ${C.line}`, background: best ? C.pinkBg : 'transparent', fontFamily: font.mono, fontSize: 13 }}>
-              <span style={{ color: best ? C.pink : C.silver2 }}>Lap {l.lap_no} {best ? '★' : ''}</span>
-              <span style={{ color: C.dim }}>{l.valid ? fmtTime(l.lap_time_s) : 'in progress at export'}</span>
+              <span style={{ color: best ? C.pink : C.silver2 }}>
+                Lap {l.lap_no} {best ? '★' : ''}
+                {kindOf(l) !== 'timed' && (
+                  <span style={{ marginLeft: 8, fontSize: 9, letterSpacing: 1, color: C.warn,
+                                 border: `1px solid ${C.warn}55`, borderRadius: 4, padding: '1px 6px' }}>
+                    {kindOf(l) === 'out' ? 'OUT-LAP' : 'PARTIAL'}
+                  </span>
+                )}
+              </span>
+              <span style={{ color: C.dim }}>{lapLabel(l)}</span>
             </div>
           )
         })}
