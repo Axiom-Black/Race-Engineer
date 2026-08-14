@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { C, font } from '../theme'
 import { getSession, getSessionTrace } from '../lib/sessions'
+import { deltaTrace, fmtDelta } from '../lib/delta'
 
 const TABS = ['Summary', 'Performance', 'Instruments', 'Track Map']
 
@@ -69,11 +70,30 @@ function lapMetrics(pts) {
   }
 }
 
+/** Single-pass min/max — never spread a sample array onto the call stack. */
+function extentOf(arrays) {
+  let min = Infinity
+  let max = -Infinity
+  for (const arr of arrays) {
+    if (!arr) continue
+    for (let i = 0; i < arr.length; i++) {
+      const v = arr[i]
+      if (v == null) continue
+      if (v < min) min = v
+      if (v > max) max = v
+    }
+  }
+  return Number.isFinite(min) ? { min, max } : null
+}
+
 // ── SVG line plot vs distance, with a shared cursor ───────────────
-function Plot({ pts, pick, color, label, unit, cursor, onScrub, height = 92, zero = false }) {
+// `refPts` draws a dimmed reference lap behind the selected one (S8). Both
+// series share one y-scale, otherwise the overlay would lie about magnitude.
+function Plot({ pts, refPts, pick, color, label, unit, cursor, onScrub, height = 92, zero = false }) {
   const W = 1000
   const H = height
   const vals = pts.map(pick)
+  const refVals = refPts ? refPts.map(pick) : null
   const present = vals.filter((v) => v != null)
   if (!present.length) {
     return (
@@ -85,16 +105,21 @@ function Plot({ pts, pick, color, label, unit, cursor, onScrub, height = 92, zer
       </div>
     )
   }
-  let lo = Math.min(...present)
-  let hi = Math.max(...present)
+  // One scale spanning both series so the overlay is comparable by eye.
+  const ext = extentOf([vals, refVals])
+  let lo = ext.min
+  let hi = ext.max
   if (zero) lo = Math.min(0, lo)
   if (hi === lo) hi = lo + 1
   const x = (i) => (i / (pts.length - 1)) * W
   const y = (v) => H - 6 - ((v - lo) / (hi - lo)) * (H - 12)
-  const d = vals
-    .map((v, i) => (v == null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
-    .filter(Boolean)
-    .join(' ')
+  const toPath = (arr) =>
+    arr
+      .map((v, i) => (v == null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
+      .filter(Boolean)
+      .join(' ')
+  const d = toPath(vals)
+  const dRef = refVals ? toPath(refVals) : null
   const cx = x(cursor)
   const cVal = vals[cursor]
   return (
@@ -113,6 +138,10 @@ function Plot({ pts, pick, color, label, unit, cursor, onScrub, height = 92, zer
         {zero && lo < 0 && (
           <line x1="0" y1={y(0)} x2={W} y2={y(0)} stroke={C.line} strokeWidth="1" />
         )}
+        {dRef && (
+          <polyline points={dRef} fill="none" stroke={C.silver2} strokeWidth="1.5" strokeOpacity="0.45"
+            strokeDasharray="5 4" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        )}
         <polyline points={d} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
         <line x1={cx} y1="0" x2={cx} y2={H} stroke={C.silver3} strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
         {cVal != null && <circle cx={cx} cy={y(cVal)} r="3" fill={color} />}
@@ -120,6 +149,66 @@ function Plot({ pts, pick, color, label, unit, cursor, onScrub, height = 92, zer
     </div>
   )
 }
+/**
+ * Cumulative delta-time trace (S8). Each segment is coloured by sign, so a
+ * driver reads WHERE time is won or lost, not just the final gap: below the
+ * zero line (green) the selected lap is ahead of the reference, above it
+ * (red) it is behind.
+ */
+function DeltaPlot({ delta, cursor, onScrub, refLabel }) {
+  const W = 1000
+  const H = 104
+  const ext = extentOf([delta])
+  // Symmetric scale around zero keeps "above/below the line" honest.
+  const mag = Math.max(Math.abs(ext.min), Math.abs(ext.max), 0.05)
+  const lo = -mag
+  const hi = mag
+  const x = (i) => (i / (delta.length - 1)) * W
+  const y = (v) => H - 6 - ((v - lo) / (hi - lo)) * (H - 12)
+  const final = delta[delta.length - 1]
+  const cVal = delta[cursor]
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
+        <span style={{ fontSize: 10, letterSpacing: 1, color: C.dim, textTransform: 'uppercase' }}>
+          Δ time vs {refLabel}
+        </span>
+        <span style={{ fontFamily: font.mono, fontSize: 12, fontWeight: 700, color: cVal > 0 ? C.danger : C.good }}>
+          {fmtDelta(cVal)}<span style={{ color: C.dim, fontWeight: 400 }}> s at cursor · finish {fmtDelta(final)} s</span>
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+        style={{ width: '100%', height: H, border: `1px solid ${C.line}`, borderRadius: 8, background: C.bg, display: 'block', cursor: 'crosshair' }}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
+          onScrub(Math.round(frac * (delta.length - 1)))
+        }}
+      >
+        <line x1="0" y1={y(0)} x2={W} y2={y(0)} stroke={C.line} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+        {delta.slice(1).map((v, i) => (
+          <line
+            key={i}
+            x1={x(i)} y1={y(delta[i])} x2={x(i + 1)} y2={y(v)}
+            stroke={(delta[i] + v) / 2 > 0 ? C.danger : C.good}
+            strokeWidth="2" strokeLinecap="round" vectorEffect="non-scaling-stroke"
+          />
+        ))}
+        <line x1={x(cursor)} y1="0" x2={x(cursor)} y2={H} stroke={C.silver3} strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+        <circle cx={x(cursor)} cy={y(cVal)} r="3" fill={cVal > 0 ? C.danger : C.good} />
+      </svg>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: C.dim, marginTop: 3 }}>
+        <span>start of lap</span>
+        <span style={{ color: C.good }}>below the line = gaining</span>
+        <span style={{ color: C.danger }}>above = losing</span>
+        <span>finish</span>
+      </div>
+    </div>
+  )
+}
+
 function PlotLabel({ label, value, unit, color }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
@@ -179,6 +268,7 @@ export default function SessionReport({ sessionId, onBack }) {
   const [state, setState] = useState({ loading: true, error: '', session: null, laps: [], trace: null })
   const [tab, setTab] = useState('Summary')
   const [lapNo, setLapNo] = useState(null)
+  const [refLapNo, setRefLapNo] = useState(null) // S8: comparison lap ('' = none)
   const [cursor, setCursor] = useState(0)
   const [domainFilter, setDomainFilter] = useState('All')
 
@@ -206,8 +296,16 @@ export default function SessionReport({ sessionId, onBack }) {
     return state.trace.laps.find((l) => l.lap === lapNo) ?? state.trace.laps[0] ?? null
   }, [state.trace, lapNo])
 
+  const refTraceLap = useMemo(() => {
+    if (!state.trace || refLapNo == null || refLapNo === lapNo) return null
+    return state.trace.laps.find((l) => l.lap === refLapNo) ?? null
+  }, [state.trace, refLapNo, lapNo])
+
   const pts = useMemo(() => traceLap?.pts ?? [], [traceLap])
+  const refPts = useMemo(() => refTraceLap?.pts ?? null, [refTraceLap])
   const metrics = useMemo(() => lapMetrics(pts), [pts])
+  // null when either lap has no recorded time — no fabricated comparison.
+  const delta = useMemo(() => deltaTrace(traceLap, refTraceLap), [traceLap, refTraceLap])
 
   // keep the cursor in range when the lap changes
   useEffect(() => {
@@ -254,6 +352,30 @@ export default function SessionReport({ sessionId, onBack }) {
             ))}
           </select>
         </div>
+
+        {/* S8 — reference lap for the overlay + delta trace. Only laps with a
+            recorded time can be compared against; an in-progress lap has no
+            duration to difference. */}
+        {laps.length > 1 && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: 10, color: C.dim, letterSpacing: 1, textTransform: 'uppercase' }}>vs</span>
+            <select
+              value={refLapNo ?? ''}
+              onChange={(e) => setRefLapNo(e.target.value === '' ? null : Number(e.target.value))}
+              style={{ background: C.panel, color: refLapNo == null ? C.dim : C.silver3, border: `1px solid ${C.line}`, borderRadius: 6, padding: '5px 8px', fontFamily: font.mono, fontSize: 13 }}
+            >
+              <option value="">no comparison</option>
+              {laps
+                .filter((l) => l.valid && l.lap_time_s != null && l.lap_no !== lapNo)
+                .map((l) => (
+                  <option key={l.id} value={l.lap_no}>
+                    Lap {l.lap_no}{session.fastest_lap_no === l.lap_no ? ' ★' : ''} — {fmtTime(l.lap_time_s)}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', flexWrap: 'wrap' }}>
           {TABS.map((t) => (
             <button
@@ -283,7 +405,14 @@ export default function SessionReport({ sessionId, onBack }) {
         </div>
       )}
       {tab === 'Instruments' && trace && (
-        <InstrumentsTab pts={pts} cursor={cursor} setCursor={setCursor} />
+        <InstrumentsTab
+          pts={pts}
+          refPts={refPts}
+          delta={delta}
+          refLabel={refTraceLap ? `lap ${refTraceLap.lap}` : null}
+          cursor={cursor}
+          setCursor={setCursor}
+        />
       )}
       {tab === 'Track Map' && trace && (
         <TrackMapTab pts={pts} aspect={trace.aspect} cursor={cursor} setCursor={setCursor} />
@@ -434,26 +563,41 @@ function PerformanceTab({ metrics, pts, lapValid }) {
 }
 
 // ── Instruments ───────────────────────────────────────────────────
-function InstrumentsTab({ pts, cursor, setCursor }) {
+function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor }) {
   if (!pts.length) return <div style={{ color: C.dim, padding: 20 }}>No trace for this lap.</div>
+  const P = { pts, refPts, cursor, onScrub: setCursor }
   return (
     <Card style={{ padding: '16px 18px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3 }}>INSTRUMENTS — scrub by distance</div>
-        <span style={{ fontFamily: font.mono, fontSize: 12, color: C.pink }}>{(pts[cursor]?.d * 100).toFixed(1)}% of lap</span>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {refPts && (
+            <span style={{ fontSize: 10, color: C.dim, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 16, height: 0, borderTop: `1.5px dashed ${C.silver2}`, opacity: 0.7 }} />
+              {refLabel}
+            </span>
+          )}
+          <span style={{ fontFamily: font.mono, fontSize: 12, color: C.pink }}>{(pts[cursor]?.d * 100).toFixed(1)}% of lap</span>
+        </div>
       </div>
       <input
         type="range" min={0} max={pts.length - 1} value={cursor}
         onChange={(e) => setCursor(Number(e.target.value))}
         style={{ width: '100%', marginBottom: 14, accentColor: C.pink }}
       />
-      <Plot pts={pts} pick={(p) => p.s} color={C.pink} label="Speed" unit="km/h" cursor={cursor} onScrub={setCursor} />
-      <Plot pts={pts} pick={(p) => p.t} color={C.good} label="Throttle" unit="%" cursor={cursor} onScrub={setCursor} height={70} />
-      <Plot pts={pts} pick={(p) => p.b} color={C.danger} label="Brake" unit="%" cursor={cursor} onScrub={setCursor} height={70} />
-      <Plot pts={pts} pick={(p) => p.r} color={C.warn} label="Engine RPM" unit="rpm" cursor={cursor} onScrub={setCursor} height={70} />
-      <Plot pts={pts} pick={(p) => p.g} color={C.blue} label="Gear" unit="" cursor={cursor} onScrub={setCursor} height={56} />
-      <Plot pts={pts} pick={(p) => p.gl} color={C.silver2} label="Lateral G" unit="G" cursor={cursor} onScrub={setCursor} height={70} zero />
-      <Plot pts={pts} pick={(p) => p.glo} color={C.silver3} label="Longitudinal G" unit="G" cursor={cursor} onScrub={setCursor} height={70} zero />
+      {delta && <DeltaPlot delta={delta} cursor={cursor} onScrub={setCursor} refLabel={refLabel} />}
+      {refPts && !delta && (
+        <p style={{ fontSize: 11, color: C.warn, marginTop: 0, marginBottom: 12 }}>
+          Traces overlaid, but no Δ-time trace: one of these laps has no recorded lap time.
+        </p>
+      )}
+      <Plot {...P} pick={(p) => p.s} color={C.pink} label="Speed" unit="km/h" />
+      <Plot {...P} pick={(p) => p.t} color={C.good} label="Throttle" unit="%" height={70} />
+      <Plot {...P} pick={(p) => p.b} color={C.danger} label="Brake" unit="%" height={70} />
+      <Plot {...P} pick={(p) => p.r} color={C.warn} label="Engine RPM" unit="rpm" height={70} />
+      <Plot {...P} pick={(p) => p.g} color={C.blue} label="Gear" unit="" height={56} />
+      <Plot {...P} pick={(p) => p.gl} color={C.silver2} label="Lateral G" unit="G" height={70} zero />
+      <Plot {...P} pick={(p) => p.glo} color={C.silver3} label="Longitudinal G" unit="G" height={70} zero />
     </Card>
   )
 }
