@@ -63,6 +63,27 @@ exception when insufficient_privilege then
   raise notice 'storage ok — cross-folder write rejected';
 end $$;
 
+-- G3.5 — A may OVERWRITE its own object (the upsert retry path).
+--
+-- Every upload in lib/sessions.js passes `{ upsert: true }`, and an upsert
+-- onto an existing object is an UPDATE. The Phase 1 migration granted only
+-- SELECT/INSERT/DELETE, so a retry after a partially-failed upload — exactly
+-- what upsert:true exists to serve — failed with an RLS violation whenever
+-- rollbackSession() had not run (closed tab, dropped connection, crash).
+-- Fixed by 20260817010000_storage_update_policy.sql; asserted here so the
+-- policy cannot be dropped without a red gate.
+do $$
+begin
+  update storage.objects
+     set updated_at = now()
+   where bucket_id = 'telemetry'
+     and name = '00000000-0000-0000-0000-00000000000a/s1/trace.json';
+  if not found then
+    raise exception 'G3.5 FAIL: A could not overwrite its own object (upsert retry is broken)';
+  end if;
+  raise notice 'G3.5 ok — own-object overwrite permitted';
+end $$;
+
 -- ── Act as driver B ─────────────────────────────────────────────
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
 
@@ -88,6 +109,32 @@ begin
   raise exception 'RLS FAIL: B inserted a session owned by A';
 exception when insufficient_privilege then
   raise notice 'G3.1 ok — spoofed insert rejected by RLS';
+end $$;
+
+-- B lays down an object of its own, so the new UPDATE policy can be tested
+-- against a real cross-tenant target rather than a hypothetical one.
+insert into storage.objects (bucket_id, name)
+  values ('telemetry', '00000000-0000-0000-0000-00000000000b/s1/victim.json');
+
+-- ── Back to driver A ────────────────────────────────────────────
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+
+-- G3.6 — the UPDATE policy must NOT reach across the tenant boundary.
+-- An UPDATE policy is the easiest place to widen isolation by accident, so
+-- the negative case is asserted alongside the positive one. RLS filters the
+-- row out rather than raising, so the assertion is "zero rows affected".
+do $$
+declare touched int;
+begin
+  update storage.objects
+     set updated_at = now()
+   where bucket_id = 'telemetry'
+     and name = '00000000-0000-0000-0000-00000000000b/s1/victim.json';
+  get diagnostics touched = row_count;
+  if touched <> 0 then
+    raise exception 'G3.6 FAIL: A overwrote % of B''s objects', touched;
+  end if;
+  raise notice 'G3.6 ok — cross-tenant overwrite affected 0 rows';
 end $$;
 
 reset role;

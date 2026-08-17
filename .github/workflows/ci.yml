@@ -99,7 +99,7 @@ jobs:
         run: python -m pytest tests/unit/ -q
 
   ring3-auth-tenancy:
-    name: "Ring 3 · Auth & tenancy (G3.1/G3.2/G3.4)"
+    name: "Ring 3 · Auth & tenancy (G3.1/G3.2/G3.4/G3.5/G3.6)"
     needs: ring1-parser-truth
     runs-on: ubuntu-latest
     services:

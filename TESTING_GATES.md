@@ -77,6 +77,20 @@ Blocks any push touching identity. **Identity = Supabase Auth** (Clerk supersede
 | **G3.2 RLS isolation** | An authenticated cross-user read (Phase 2: cross-garage) returns **0 rows at the DB layer** | Isolation enforced below the app, not in it |
 | **G3.3 Gating not client-side** | Access control is enforced by RLS/database constraints; client-side checks (including the atomic three-file check) exist for UX only and are never the security boundary | Known prototype issue — must not harden into the real path |
 | **G3.4 Atomicity at the DB** | A session row cannot reach `complete` status unless all three storage paths (`.ld`/`.ldx`/`.svm`) are recorded — enforced by constraint/`ingest_status`, verified by test | Standing bar: three-file upload is atomic, even against a hand-crafted client |
+| **G3.5 Own-object overwrite permitted** | A driver can overwrite an object under their own `auth.uid()` prefix | Every upload passes `{ upsert: true }`, and an upsert onto an existing object is an **UPDATE**. Without an UPDATE policy the retry-after-partial-failure path — the reason `upsert` is there — fails with an RLS violation *(added 17 Aug 2026; see the note below)* |
+| **G3.6 Overwrite stops at the tenant boundary** | The same UPDATE affects **0 rows** when aimed at another driver's object | An UPDATE policy is the easiest place to widen isolation by accident, so the negative case is asserted alongside the positive |
+
+**How G3.5 was found, and why the pairing matters.** Not by a failing test —
+by auditing the live Supabase project's policies against what the client code
+actually does. The Phase 1 migration granted SELECT/INSERT/DELETE on
+`storage.objects` and nothing else, while all four uploads in
+`lib/sessions.js` pass `{ upsert: true }`. `rollbackSession()` masked it most
+of the time by deleting orphans, but it cannot run when the failure is a
+closed tab or a dropped connection — exactly when a retry is needed.
+
+Both gates were verified to have teeth before landing: with the fix migration
+omitted the suite exits **3** on G3.5, and with it applied all seven checks
+pass. A gate that passes in both states would have been worse than none.
 
 ---
 
