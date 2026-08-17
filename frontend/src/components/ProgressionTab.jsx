@@ -66,6 +66,10 @@ function Sparkline({ bests }) {
               title={fmtLap(b)}
               style={{
                 flex: 1,
+                // Cap the width so a two-session history reads as a trend and
+                // not as two slabs the width of the card. flex:1 alone (the
+                // prototype's rule) only looks right at higher session counts.
+                maxWidth: 34,
                 height: `${h}%`,
                 background: i === bests.length - 1 ? C.pink : C.silver2,
                 borderRadius: 2,
@@ -239,7 +243,7 @@ export default function ProgressionTab() {
 
       <div style={{ display: 'grid', gap: 11 }}>
         {shown.map((c) => {
-          const tierName = tierNameFor(c.gap, tiers)
+          const tierName = tierNameFor(c.gap, tiers, c.count)
           const tierColor = TIER_COLORS[tierName]
           const gapPct = closenessPct(c.gap, tiers)
           return (

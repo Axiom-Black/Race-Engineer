@@ -120,6 +120,15 @@ describe('car filter', () => {
 })
 
 describe('tier assignment', () => {
+  it('refuses to rank a combo with only one session', () => {
+    // The gap is measured against the driver's own best, so a single session
+    // has a gap of exactly 0 — every first upload would otherwise be ELITE.
+    expect(tierNameFor(0, DEFAULT_TIERS, 1)).toBe('UNRANKED')
+    // ...but the same zero gap IS meaningful once there's something to
+    // compare against: the driver matched their personal best.
+    expect(tierNameFor(0, DEFAULT_TIERS, 2)).toBe('ELITE')
+  })
+
   it('walks the cascade by gap size', () => {
     expect(tierNameFor(0.2, DEFAULT_TIERS)).toBe('ELITE')
     expect(tierNameFor(1.0, DEFAULT_TIERS)).toBe('COMPETITIVE')

@@ -72,9 +72,18 @@ export function filterByCar(combos, car) {
   return car === ALL_CARS ? combos : combos.filter((c) => c.car === car)
 }
 
-/** Tier name + colour for a gap. Colours are resolved by the caller's theme. */
-export function tierNameFor(gap, tiers) {
+/**
+ * Tier name for a gap. Colours are resolved by the caller's theme.
+ *
+ * `runCount` is not optional decoration. The gap is measured against the
+ * driver's OWN best, so a combo with a single session has a gap of exactly
+ * zero by definition — and would be awarded ELITE for having nothing to be
+ * compared against. Every first upload would come back top-tier. A tier needs
+ * at least two runs before it is reporting anything at all.
+ */
+export function tierNameFor(gap, tiers, runCount = 2) {
   if (gap == null) return 'UNRANKED'
+  if (runCount < 2) return 'UNRANKED'
   if (gap <= tiers.elite) return 'ELITE'
   if (gap <= tiers.competitive) return 'COMPETITIVE'
   if (gap <= tiers.developing) return 'DEVELOPING'

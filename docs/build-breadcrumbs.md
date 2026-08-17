@@ -147,6 +147,41 @@ Each entry: date · what shipped · the method insight worth carrying forward.
 
 ## Part C — Environment & toolchain notes (so the next session skips the pain)
 
+### Render a component in isolation in ~2 minutes (throwaway harness)
+
+Unit tests cover logic; they say nothing about what the thing *looks* like. A
+disposable harness renders one component against stub data with no Supabase,
+no auth, and no login flow — and it is fast enough to be worth doing for any
+non-trivial UI change. It caught two defects in S6 that 33 passing logic tests
+did not: a single-session combo being awarded the top tier badge, and a
+two-bar sparkline rendering as full-width slabs.
+
+Recipe — create `frontend/.harness/` (add to `.gitignore`, delete afterwards):
+
+- `stub-sessions.js` / `stub-auth.jsx` — plain modules exporting the same
+  names as the real ones.
+- `vite.config.js` with `root` set to the harness dir and **regex** aliases,
+  which is what lets you intercept a *relative* import from a component:
+  ```js
+  resolve: { alias: [
+    { find: /.*\/lib\/sessions$/, replacement: path.join(here, 'stub-sessions.js') },
+    { find: /.*\/lib\/auth$/,     replacement: path.join(here, 'stub-auth.jsx') },
+  ]}
+  ```
+- `index.html` + `main.jsx` mounting just the component under test.
+- `npx vite --config .harness/vite.config.js --port 5199 --strictPort`
+
+Then drive it with Playwright and **assert, don't just screenshot** — read
+`innerText`, count elements, mutate an input, reload, and check persistence.
+Take the screenshot too: the slab-sparkline was invisible in the text output
+and obvious in the image. Environment specifics: `playwright-core` is not in
+this project (and shouldn't be) — install it in a scratch dir outside the
+repo; it is CommonJS, so `import pkg from 'playwright-core'; const { chromium }
+= pkg`. The browser is at `/opt/pw-browsers/chromium` — pass it as
+`executablePath`, and never run `playwright install`. Kill the dev server via
+`pgrep -f "vit[e] --config"`; the bracket trick stops the pattern matching its
+own command line (a plain `pkill -f` kills the shell).
+
 - **Vite 8 / rolldown on Linux:** the Windows-only `@rolldown/binding-win32-x64-msvc`
   must live in `optionalDependencies` only — as a hard dependency it fails
   `npm install` with `EBADPLATFORM` on Linux (CI + Vercel). CI also guards the
