@@ -204,7 +204,10 @@ own command line (a plain `pkill -f` kills the shell).
   somewhere the `postgres` user can traverse. `runuser -u postgres -- …` works.
 - **WebCrypto in ingest:** `crypto.subtle.digest('SHA-256', …)` is available in
   the browser and in Node 20 (CI/Vitest) — no dependency needed for dedup hashes.
-- **GitHub writes:** this environment blocks `git push` over HTTPS by policy;
-  writes go through the GitHub MCP server (and `git push` works once the app
-  installation has write). `force-with-lease` is safe when a branch held only
+- **GitHub writes:** `git push -u origin <branch>` over HTTPS **works** in the
+  `Race Engineer - Dev` cloud environment (verified 17 Aug 2026) — the earlier
+  "policy-blocked, push via MCP" note was true of an older environment and no
+  longer applies; the GitHub MCP server remains the fallback. Ref *deletion* and
+  tag creation still returned 403 when last tried, so branch cleanup stays a
+  local operation. `force-with-lease` is safe when a branch held only
   already-merged history.
