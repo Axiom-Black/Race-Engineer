@@ -48,7 +48,11 @@ create table if not exists storage.objects (
   bucket_id text references storage.buckets (id),
   name text not null,
   owner uuid default auth.uid(),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Real Supabase carries updated_at, and an upsert touches it. Needed so
+  -- G3.5/G3.6 can exercise the UPDATE policy the way the client actually
+  -- does, rather than against a column invented for the test.
+  updated_at timestamptz not null default now()
 );
 -- Supabase ships storage.objects with RLS already enabled; mirror that so
 -- the telemetry_own_* policies the migration creates are actually enforced.

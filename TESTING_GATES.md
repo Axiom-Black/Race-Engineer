@@ -77,6 +77,20 @@ Blocks any push touching identity. **Identity = Supabase Auth** (Clerk supersede
 | **G3.2 RLS isolation** | An authenticated cross-user read (Phase 2: cross-garage) returns **0 rows at the DB layer** | Isolation enforced below the app, not in it |
 | **G3.3 Gating not client-side** | Access control is enforced by RLS/database constraints; client-side checks (including the atomic three-file check) exist for UX only and are never the security boundary | Known prototype issue — must not harden into the real path |
 | **G3.4 Atomicity at the DB** | A session row cannot reach `complete` status unless all three storage paths (`.ld`/`.ldx`/`.svm`) are recorded — enforced by constraint/`ingest_status`, verified by test | Standing bar: three-file upload is atomic, even against a hand-crafted client |
+| **G3.5 Own-object overwrite permitted** | A driver can overwrite an object under their own `auth.uid()` prefix | Every upload passes `{ upsert: true }`, and an upsert onto an existing object is an **UPDATE**. Without an UPDATE policy the retry-after-partial-failure path — the reason `upsert` is there — fails with an RLS violation *(added 17 Aug 2026; see the note below)* |
+| **G3.6 Overwrite stops at the tenant boundary** | The same UPDATE affects **0 rows** when aimed at another driver's object | An UPDATE policy is the easiest place to widen isolation by accident, so the negative case is asserted alongside the positive |
+
+**How G3.5 was found, and why the pairing matters.** Not by a failing test —
+by auditing the live Supabase project's policies against what the client code
+actually does. The Phase 1 migration granted SELECT/INSERT/DELETE on
+`storage.objects` and nothing else, while all four uploads in
+`lib/sessions.js` pass `{ upsert: true }`. `rollbackSession()` masked it most
+of the time by deleting orphans, but it cannot run when the failure is a
+closed tab or a dropped connection — exactly when a retry is needed.
+
+Both gates were verified to have teeth before landing: with the fix migration
+omitted the suite exits **3** on G3.5, and with it applied all seven checks
+pass. A gate that passes in both states would have been worse than none.
 
 ---
 
@@ -89,6 +103,34 @@ In the pilot the JS parsers are the **only** runtime implementation, but the *ve
 | **G4.1 Parser parity** | The JS parsers' decoded output on the fixture matches the committed Python-generated golden masters value-for-value (float tolerance only) | A port that quietly diverges from the verified decode is worse than no port |
 | **G4.2 Domain classification parity** | Channel → agent-domain mapping matches the committed mapping snapshot | Mis-routing at the edge corrupts agent context (dormant consumer in the pilot; the mapping still drives the channel-inventory UI) |
 | **G4.3 Golden masters are fresh** | The committed golden masters were regenerated from the current fixture (hash recorded alongside) | Stale truth data validates nothing |
+
+---
+
+## 5a · Ring 5 — Deployable artifact *(does the thing we ship contain the product?)*
+
+**Added 17 Aug 2026** — an amendment to the ring contract, prompted by a real
+miss rather than a hypothetical. See WORKING_PLAN §5.
+
+Rings 0–4 all test **source**. They were entirely green while `npm run build`
+was emitting a bundle with **no application in it**. Vite inlines
+`import.meta.env` at build time; with the Supabase variables absent, the
+unconditional throw in `src/lib/supabase.js` became statically reachable and
+the minifier dead-code-eliminated everything behind it. The build exited 0 and
+produced a plausible-looking 198.70 kB bundle — against 461.64 kB when
+configured. Deployed, that artifact serves a blank page and logs nothing.
+
+This ring exists because *"the tests are green"* and *"the artifact we ship
+actually contains the product"* turned out to be two different claims. It is
+the last ring before a deploy and it tests the **build output**, not the code.
+
+| Gate | Green when… | Rationale |
+| --- | --- | --- |
+| **G5.1 Unconfigured build is refused** | `npm run build` with no Supabase env vars **fails** (non-zero exit), via the guard in `vite.config.js` | A build that can't produce a working app must say so, not exit 0 with a hollow bundle |
+| **G5.2 Configured build contains the app** | A build with placeholder env vars emits a bundle that contains application code and is ≥ 300 kB | Proves the component tree survived tree-shaking; the size floor catches a partial strip that a string match alone would miss |
+
+**Operational corollary, for any hosted environment:** because the values are
+inlined at build time, changing an environment variable requires a **rebuild**.
+Setting it and restarting does nothing.
 
 ---
 
