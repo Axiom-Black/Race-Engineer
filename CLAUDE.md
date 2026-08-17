@@ -153,7 +153,7 @@ reference implementation is `backend/`. Run commands from those directories.
 | --- | --- | --- |
 | Frontend tests (golden-master parity) | `cd frontend && npx vitest run` | Ring 4 |
 | Frontend lint | `cd frontend && npm run lint` | — |
-| Frontend build | `cd frontend && npm run build` | — |
+| Frontend build | `cd frontend && npm run build` | Ring 5 |
 | Frontend dev server | `cd frontend && npm run dev` | — |
 | Backend unit suite | `cd backend && pip install -e ".[dev]" && python -m pytest tests/unit/ -q` | Ring 1 |
 | RLS / tenancy acceptance | apply `supabase/tests/00_auth_shim.sql`, then `supabase/migrations/*.sql` in filename order, then `supabase/tests/01_rls_acceptance.sql` against a scratch Postgres | Ring 3 |
@@ -161,11 +161,23 @@ reference implementation is `backend/`. Run commands from those directories.
 `.github/workflows/ci.yml` is the authoritative version of every command above;
 if this table and the workflow disagree, the workflow wins — fix the table.
 
+**The build needs env vars, by design.** `npm run build` **refuses** to run
+without `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (Ring 5 / G5.1)
+— without them Vite inlines `undefined`, the minifier strips the whole app
+behind the throw in `lib/supabase.js`, and the deploy serves a blank page. A
+refused build is the guard working, not a broken checkout. Locally: copy
+`frontend/.env.example` to `frontend/.env.local`. Because Vite inlines the
+values at **build** time, changing one anywhere — including Vercel — requires a
+**rebuild**, not a restart.
+
 **Cloud sessions.** `.claude/settings.json` registers a `SessionStart` hook that
 runs `scripts/cloud_setup.sh`, which installs `frontend/` dependencies (and
 repairs the rolldown optional-binding gap) when `CLAUDE_CODE_REMOTE=true`. It
 deliberately skips the backend's Python deps — install those by hand when you
-need the Ring 1 suite.
+need the Ring 1 suite. It also writes `frontend/.env.local` from the cloud
+environment's `NEXT_PUBLIC_SUPABASE_*` variables, which carry the right values
+under Next.js names that Vite cannot see; without that bridge every cloud
+session's build and dev server fail.
 
 ## Branch rules
 
