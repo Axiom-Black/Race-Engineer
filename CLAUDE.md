@@ -144,6 +144,45 @@ is "done").
 - GPS channels are game-world coordinates dressed as lat/lon (nominally in
   the Pacific). Relative positions are exact; never overlay on real maps.
 
+## Commands
+
+The npm project is `frontend/` — there is no root `package.json`. The Python
+reference implementation is `backend/`. Run commands from those directories.
+
+| What | Command | Gate |
+| --- | --- | --- |
+| Frontend tests (golden-master parity) | `cd frontend && npx vitest run` | Ring 4 |
+| Frontend lint | `cd frontend && npm run lint` | — |
+| Frontend build | `cd frontend && npm run build` | — |
+| Frontend dev server | `cd frontend && npm run dev` | — |
+| Backend unit suite | `cd backend && pip install -e ".[dev]" && python -m pytest tests/unit/ -q` | Ring 1 |
+| RLS / tenancy acceptance | apply `supabase/tests/00_auth_shim.sql`, then `supabase/migrations/*.sql` in filename order, then `supabase/tests/01_rls_acceptance.sql` against a scratch Postgres | Ring 3 |
+
+`.github/workflows/ci.yml` is the authoritative version of every command above;
+if this table and the workflow disagree, the workflow wins — fix the table.
+
+**Cloud sessions.** `.claude/settings.json` registers a `SessionStart` hook that
+runs `scripts/cloud_setup.sh`, which installs `frontend/` dependencies (and
+repairs the rolldown optional-binding gap) when `CLAUDE_CODE_REMOTE=true`. It
+deliberately skips the backend's Python deps — install those by hand when you
+need the Ring 1 suite.
+
+## Branch rules
+
+Full conventions live in `CONTRIBUTING.md`; the load-bearing ones:
+
+- Branch from current `origin/main` — **always fetch first**.
+- Name after *what the change is*, never who wrote it:
+  `feat/<slug>` · `fix/<slug>` · `chore/<slug>` · `docs/<slug>`.
+- One logical change per branch; keep them small and separately reviewable.
+- Delete the branch (local and remote) after its PR merges.
+- **Never stack new commits on already-merged history.** More work → fresh
+  branch from `main`.
+- Every push to `main` clears the Ring 0–4 gates in `TESTING_GATES.md`, or it
+  doesn't push.
+- Migration filenames are load-bearing — never rename an applied migration;
+  add a new one.
+
 ## Licensing & dependencies
 
 - Repo is **private and proprietary**. `LICENSE` file must read:
