@@ -105,6 +105,21 @@ question about your model. **Payoff:** an all-zero `Lap Number` in the fixture
 exposed a real session-windowing bug in the ingest, fixed before it reached
 data. *Codex I.1, I.2.*
 
+### A11 · Gate the artifact, not just the source
+**When:** any build step stands between your tests and what users load —
+bundlers, tree-shaking, compile-time env inlining, container images.
+**How:** add a final ring that inspects the **build output**: assert it
+contains something only the real product would contain, and assert a size
+floor. Separately, make a misconfigured build *fail* rather than emit a
+degraded artifact. **Payoff:** Vite inlines `import.meta.env` at build time;
+with env vars absent, an unconditional throw let the minifier strip the entire
+application — exit 0, no warning, 198.70 kB of library where 461.64 kB of
+product belonged. Rings 0–4 were green the whole time because they test
+source. The tell was a bundle hash that didn't change across a substantial
+source edit. **Two habits worth keeping:** treat *unchanged output from
+changed input* as a defect until proven otherwise, and prefer a build that
+refuses over a build that degrades quietly. *Codex I.1, VI.6.*
+
 ---
 
 ## Part B — Session trail (newest first)
@@ -113,6 +128,8 @@ Each entry: date · what shipped · the method insight worth carrying forward.
 
 | Date | Shipped | Method insight |
 | --- | --- | --- |
+| 17 Aug 2026 | S6 back half (car filter, threshold persistence, sparkline parity) + Ring 5 after finding a hollow production bundle | **A11 — the artifact is a separate claim from the source, and an unchanged output hash is a bug report.** Preparing S7, the bundle hash and byte count came back *identical* across a substantial source change. That single anomaly, rather than any failing test, exposed that every production build had been shipping 198.70 kB of Supabase library with the entire application dead-code-eliminated behind a config guard (461.64 kB when configured). Five green rings had said nothing, because all five test source. Also reinforced: **check what the integration can actually do before planning around it** — the Vercel connector could create projects and read logs but had no env-var write tool, and the account wasn't linked to GitHub at all, so the "connect" step was never going to be drivable from here. Same shape as the 403-on-tag-deletion lesson: verify a capability, don't assume it. |
+| 17 Aug 2026 | Tier thresholds persisted per driver | **Match the storage tier to what the data actually is, and state the limitation in the UI.** Thresholds change a *label*, not a measurement, so a migration + RLS policy to persist three numbers failed the "every increment is payable" test. localStorage behind a single seam (`lib/prefs.js`) is the honest lean choice — provided the constraint is visible ("Saved to this browser") rather than hidden, and the swap point is one module when it stops being enough. Defensive detail worth carrying: `localStorage` **throws** under private browsing and storage policies, it doesn't return null, so every access needs a try/catch and a failed *write* should surface, not vanish. |
 | 13 Aug 2026 | Session-time zone fix + UNRELIABLE tripwire | **A bug that the dev environment hides is still a bug, and dead code should be pinned rather than deleted when it is part of a contract.** The timestamp rendered correctly here only because the container is UTC — the error was invisible locally and would appear on every real user's machine. Where a defect depends on ambient environment (timezone, locale, DPI), assert the *wrong* answer explicitly in the test so a regression cannot hide behind a friendly dev box. And for the unreachable UNRELIABLE branch: deleting it would have broken the golden-master contract the Python reference also honours, so the right move was a tripwire test that forces verification the day someone makes it live. |
 | 13 Aug 2026 | Real-file acceptance run → out-lap classification bug found and fixed | **Run the real input before declaring an acceptance test passed, and let a second source arbitrate.** The suite was green and the fixture "looked like" a session — but it held one lap at 300 samples/channel, so it could not express multi-lap segmentation at all. The real export (5 segments, 29k samples/channel) exposed an out-lap being reported as a lap time the driver never set. The fix was only *provable* because a second, independent source existed: the `.ldx` states Total Laps and Fastest Lap, and the new rule reproduces both exactly. Cross-validation (Codex I.3) turns a plausible fix into a verified one. |
 | 13 Aug 2026 | Repo housekeeping — kebab-case `docs/`, conventions in `CONTRIBUTING.md`, dead-file + branch cleanup | **Verify a rename by resolving every reference, and check "merged" by content not by SHA.** Renames are only safe if the sweep covers *every* file type — a `.py` comment was the one dangling reference left after sweeping md/yml/js. And with squash-merge workflows `git branch --contains` always says "not merged", so branch cleanup must compare trees: that check found one branch holding four files that never reached `main`, which a blind delete would have destroyed. Tag before deleting anything unmerged — and check that you *can*: in this environment the GitHub App pushes refs fine but returns 403 on deleting a ref or creating a tag, so branch cleanup is a local-only operation and the remote pass belongs to a human. Verify a destructive capability before planning around it. |

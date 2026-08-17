@@ -92,6 +92,34 @@ In the pilot the JS parsers are the **only** runtime implementation, but the *ve
 
 ---
 
+## 5a · Ring 5 — Deployable artifact *(does the thing we ship contain the product?)*
+
+**Added 17 Aug 2026** — an amendment to the ring contract, prompted by a real
+miss rather than a hypothetical. See WORKING_PLAN §5.
+
+Rings 0–4 all test **source**. They were entirely green while `npm run build`
+was emitting a bundle with **no application in it**. Vite inlines
+`import.meta.env` at build time; with the Supabase variables absent, the
+unconditional throw in `src/lib/supabase.js` became statically reachable and
+the minifier dead-code-eliminated everything behind it. The build exited 0 and
+produced a plausible-looking 198.70 kB bundle — against 461.64 kB when
+configured. Deployed, that artifact serves a blank page and logs nothing.
+
+This ring exists because *"the tests are green"* and *"the artifact we ship
+actually contains the product"* turned out to be two different claims. It is
+the last ring before a deploy and it tests the **build output**, not the code.
+
+| Gate | Green when… | Rationale |
+| --- | --- | --- |
+| **G5.1 Unconfigured build is refused** | `npm run build` with no Supabase env vars **fails** (non-zero exit), via the guard in `vite.config.js` | A build that can't produce a working app must say so, not exit 0 with a hollow bundle |
+| **G5.2 Configured build contains the app** | A build with placeholder env vars emits a bundle that contains application code and is ≥ 300 kB | Proves the component tree survived tree-shaking; the size floor catches a partial strip that a string match alone would miss |
+
+**Operational corollary, for any hosted environment:** because the values are
+inlined at build time, changing an environment variable requires a **rebuild**.
+Setting it and restarting does nothing.
+
+---
+
 ## 6 · Outside the gate *(non-blocking)*
 
 Runs on a schedule or on-demand, never blocking a push:
