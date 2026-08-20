@@ -207,7 +207,19 @@ jobs:
         run: |
           set -euo pipefail
           npm run build
-          bundle=$(find dist/assets -name '*.js' | head -1)
+          # Resolve the ENTRY chunk from index.html rather than taking the
+          # first file `find` happens to return. The build can emit more than
+          # one chunk — configuring VITE_SENTRY_DSN splits the Sentry SDK into
+          # its own lazy chunk that is larger than the app itself but contains
+          # no app code, so a positional guess could assert against the wrong
+          # file and fail for the wrong reason.
+          entry=$(grep -o '/assets/[^"]*\.js' dist/index.html | head -1)
+          if [ -z "$entry" ]; then
+            echo "::error::index.html references no JS entry chunk."
+            exit 1
+          fi
+          bundle="dist${entry}"
+          test -f "$bundle" || { echo "::error::entry chunk $bundle missing from output"; exit 1; }
           # A string that only survives if the component tree wasn't stripped.
           if ! grep -aqF 'Progression' "$bundle"; then
             echo "::error::Built bundle contains no application code."
