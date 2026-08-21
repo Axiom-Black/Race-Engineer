@@ -10,6 +10,7 @@ import { C, font } from '../theme'
 import { Button } from './ui'
 import { listSessions } from '../lib/sessions'
 import { seedDemoSession } from '../lib/demo'
+import FaultNotice from './FaultNotice'
 import UploadDropzone from './UploadDropzone'
 import SessionList from './SessionList'
 import SessionReport from './SessionReport'
@@ -18,14 +19,15 @@ export default function SessionsTab() {
   const [view, setView] = useState('list') // 'list' | 'upload' | 'detail'
   const [selectedId, setSelectedId] = useState(null)
   const [sessions, setSessions] = useState(null) // null = loading
-  const [loadError, setLoadError] = useState('')
+  const [loadError, setLoadError] = useState(null) // the error object, not its message
   const [seedingDemo, setSeedingDemo] = useState(false)
   const seedAttempted = useRef(false)
 
   const refresh = useCallback(() => {
+    setLoadError(null)
     listSessions()
       .then(setSessions)
-      .catch((err) => setLoadError(err.message))
+      .catch(setLoadError)
   }, [])
 
   useEffect(() => {
@@ -40,7 +42,7 @@ export default function SessionsTab() {
     setSeedingDemo(true)
     seedDemoSession()
       .then(refresh)
-      .catch((err) => setLoadError(`Couldn't load your demo session: ${err.message}`))
+      .catch(setLoadError)
       .finally(() => setSeedingDemo(false))
   }, [sessions, refresh])
 
@@ -52,7 +54,7 @@ export default function SessionsTab() {
 
   return (
     <>
-      {loadError && <p style={{ color: C.danger, fontSize: 13 }}>{loadError}</p>}
+      {loadError && <FaultNotice error={loadError} onRetry={refresh} style={{ marginBottom: 14 }} />}
 
       {sessions === null && !loadError && <p style={{ color: C.dim }}>Loading your garage…</p>}
 

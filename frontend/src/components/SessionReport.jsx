@@ -19,6 +19,7 @@ const DOMAIN_COLOR = {
 }
 
 import { reconcile, isFastestLap, displayLapTimeS } from '../lib/lapReconciliation'
+import FaultNotice from './FaultNotice'
 
 // ── formatting ────────────────────────────────────────────────────
 function fmtTime(s) {
@@ -290,7 +291,7 @@ function TrackMap({ pts, aspect, cursor }) {
 
 // ── main ──────────────────────────────────────────────────────────
 export default function SessionReport({ sessionId, onBack }) {
-  const [state, setState] = useState({ loading: true, error: '', session: null, laps: [], trace: null })
+  const [state, setState] = useState({ loading: true, error: null, session: null, laps: [], trace: null })
   const [tab, setTab] = useState('Summary')
   const [lapNo, setLapNo] = useState(null)
   const [refLapNo, setRefLapNo] = useState(null) // S8: comparison lap ('' = none)
@@ -312,9 +313,9 @@ export default function SessionReport({ sessionId, onBack }) {
         const firstLap =
           fastestLap?.lap_no ?? trace?.laps?.[0]?.lap ?? laps[0]?.lap_no ?? null
         setLapNo(firstLap)
-        setState({ loading: false, error: '', session, laps, trace })
+        setState({ loading: false, error: null, session, laps, trace })
       } catch (err) {
-        if (active) setState({ loading: false, error: err.message, session: null, laps: [], trace: null })
+        if (active) setState({ loading: false, error: err, session: null, laps: [], trace: null })
       }
     })()
     return () => {
@@ -344,7 +345,7 @@ export default function SessionReport({ sessionId, onBack }) {
   }, [pts.length])
 
   if (state.loading) return <div style={{ color: C.dim }}>Loading…</div>
-  if (state.error) return <div style={{ color: C.danger }}>{state.error}</div>
+  if (state.error) return <FaultNotice error={state.error} />
 
   const { session, laps, trace } = state
   const channels = session.summary?.channels ?? []

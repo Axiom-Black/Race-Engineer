@@ -13,6 +13,7 @@
 import { useRef, useState } from 'react'
 import { C, font } from '../theme'
 import { Button, Banner } from './ui'
+import FaultNotice from './FaultNotice'
 import { uploadSession } from '../lib/sessions'
 
 const SLOTS = [
@@ -92,7 +93,7 @@ export default function UploadDropzone({ onUploaded, onCancel }) {
       onUploaded(sessionId)
     } catch (err) {
       setPipeline('failed')
-      setError(err?.message || 'Upload failed. Try again.')
+      setError(err)
     }
   }
 
@@ -105,7 +106,11 @@ export default function UploadDropzone({ onUploaded, onCancel }) {
         All three files, matched to the same session — the atomic set MoTeC exports together.
       </p>
 
-      <Banner kind="error">{error}</Banner>
+      {typeof error === 'string' ? (
+        <Banner kind="error">{error}</Banner>
+      ) : (
+        <FaultNotice error={error} style={{ marginBottom: 10 }} />
+      )}
 
       <div
         onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
