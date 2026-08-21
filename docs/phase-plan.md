@@ -3,6 +3,25 @@ ByteCraft Racing — Product Phase Plan
 | **BYTECRAFT RACING** **Race Engineering Manager** Product Phase Plan with Acceptance Criteria Version 1.0  ·  30 June 2026 Prepared by Axiom Black, LLC — Technology *Building The Future* |
 | --- |
 
+> ## ⚠️ Superseded assumptions — read before using this document
+>
+> **This is Version 1.0, dated 30 June 2026.** It remains the authoritative
+> statement of *what ships in what order and why*. Several of its **technical**
+> assumptions were overtaken by decisions logged in `WORKING_PLAN.md` §5, and
+> they are corrected inline below rather than by rewriting the plan — the
+> reasoning at the time is worth preserving.
+>
+> | This document says | Actual, and where decided |
+> | --- | --- |
+> | Identity via **Clerk** | **Supabase Auth.** Clerk superseded 9 Aug 2026. Roles become Supabase JWT claims. |
+> | Backend + Postgres on **Railway / Render / Fly.io** | **Supabase** (Postgres/Auth/Storage/RLS) + **Vercel** (SPA). Stack pivot 9 Aug 2026, $0/month. |
+> | **TimescaleDB hypertable conversion executes with Phase 1** | **Deferred.** Traces live in Storage as one blob per session, not in Postgres. Hypertables are a Phase 2+ migration decision, not a launch requirement. |
+> | Parsing "posted to the API"; server-side ingest hardening in Phase 2 | Parsing is **client-side** and writes to Supabase directly under RLS. There is no API service in Phase 1 — with no agent, there is nothing for a gatekeeper to protect. |
+> | Phase 2's backend is the **FastAPI** service moving server-side | **Supabase Edge Functions (Deno/TypeScript).** Decided 21 Aug 2026. `backend/` (2,272 lines of Python) becomes a **reference implementation**, not the deployed artifact — see the Phase 2 note below. |
+>
+> **Phase 1 is complete** (21 Aug 2026) — see `docs/phase-1-retrospective.md`.
+> Its acceptance criteria below were all met, on the corrected stack.
+
 # **Executive Summary**
 
 ByteCraft Racing's Race Engineering Manager is a sim-racing telemetry and AI race-engineering platform for LeMans Ultimate. The product ships in five phases, sequenced so that each phase delivers a self-contained, usable increment: a working solo telemetry dashboard first, intelligence and team features second, operational maturity third, and market expansion last.
@@ -49,11 +68,11 @@ The strategic scope decision: launch is a telemetry product, not an AI product. 
 
 - Individual driver dashboard: session upload (three-file atomic set), telemetry breakdown of all 70 channels with traces, setup sheet, saved session history, and cross-session trend view (best lap, gap progression, consistency).
 
-- Account creation with basic auth (email/password via Clerk; role system deferred — everyone is a driver).
+- Account creation with basic auth (email/password via **Supabase Auth** — *Clerk superseded 9 Aug 2026*; role system deferred — everyone is a driver).
 
-- Persistence: sessions, lap times, and setups stored server-side; parsed client-side and posted to the API (server-side ingest hardening is Phase 2).
+- Persistence: sessions, lap times, and setups stored server-side; parsed client-side and **written directly to Supabase under RLS** — *there is no API service in Phase 1* (server-side ingest hardening is Phase 2).
 
-- Hosting: frontend on Vercel or Netlify; backend + Postgres on Railway, Render, or Fly.io. TimescaleDB hypertable conversion executes with this deployment.
+- Hosting: frontend on **Vercel**; Postgres/Auth/Storage on **Supabase** — *Railway/Render/Fly.io superseded 9 Aug 2026*. **TimescaleDB hypertable conversion is deferred** to a Phase 2+ decision; traces live in Storage, not Postgres.
 
 ### **Explicitly out of scope**
 
@@ -81,13 +100,25 @@ The strategic scope decision: launch is a telemetry product, not an AI product. 
 
 Objective: switch on intelligence and collaboration. Four workstreams: user types (role system), AI agents for data assessment, session note tracking, and team (Garage) accounts. All four are prototyped in the v12 frontend; the Phase 2 work is making them real server-side.
 
-Hidden dependency called out explicitly: everything in this phase hangs off identity. Clerk JWT integration with role claims is the first task, because user types, note ownership, garage membership, quota enforcement, and RLS tenant isolation all require knowing who is asking at the API layer. The agents themselves are the least risky item — the orchestrator module is written and tested; it moves server-side almost mechanically.
+Hidden dependency called out explicitly: everything in this phase hangs off identity. **Supabase JWT verification with role claims** (*Clerk superseded*) is the first task, because user types, note ownership, garage membership, quota enforcement, and RLS tenant isolation all require knowing who is asking at the API layer.
+
+**Correction to this paragraph's final claim (21 Aug 2026).** It said the agents "move server-side almost mechanically" because the orchestrator is written and tested. That held only while the host was assumed to be Python. **The chosen host is Supabase Edge Functions, which run Deno/TypeScript** — so `backend/`'s 2,272 lines of FastAPI/SQLAlchemy/numpy do not run there at all.
+
+What this actually means, quantified:
+
+| Module | Lines | Portability to Deno/TS |
+| --- | --- | --- |
+| `app/agents/orchestrator.py` | 257 | Clean — `asyncio` + the Anthropic SDK only |
+| `app/services/metering.py` | 311 | Clean — configuration and logic |
+| `app/analysis/lap_analysis.py` | 209 | Depends on numpy/pandas — **but the equivalent already exists in JS** under `frontend/src/lib/` |
+
+The work is a **TypeScript rewrite of a thin metered gateway**, not a lift: verify JWT → check quota → build the prompt from already-persisted summaries → call the model → write `agent_runs`. Because Phase 1 parses client-side, the heavy numerical work is already done before the gateway is called. `backend/` becomes a **reference implementation** — the same pattern that worked for the Python parsers in Phase 1, where the reference generated golden masters and the port was verified against them.
 
 ### **Scope**
 
-- Roles: driver, garage admin, product admin — enforced via JWT claims at the API, with the v12 role-gated dashboards wired to real permissions.
+- Roles: driver, garage admin, product admin — enforced via **Supabase JWT claims** at the API, with the v12 role-gated dashboards wired to real permissions.
 
-- Race Engineering Agent server-side: run classes (Quick/Standard/Deep), model tiering (Haiku specialists, Sonnet orchestrator, Opus reserved for Deep synthesis), prompt caching of curated libraries, per-plan quota enforcement, agent_runs audit trail with per-run cost.
+- Race Engineering Agent server-side **as a Supabase Edge Function**: run classes (Quick/Standard/Deep), model tiering (Haiku specialists, Sonnet orchestrator, Opus reserved for Deep synthesis), prompt caching of curated libraries, per-plan quota enforcement, `agent_runs` audit trail with per-run cost. **Provider choice stays behind `RunConfig`** — see `docs/model-selection-evaluation.md` for the DeepSeek-vs-Claude decision and its A/B protocol.
 
 - Session notes: driver-written and agent-tagged notes persisted per session; setup-aware agent context (telemetry as effect, setup as cause).
 
