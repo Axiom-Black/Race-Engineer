@@ -18,6 +18,8 @@ const DOMAIN_COLOR = {
   Powertrain: C.good, Environment: C.silver2, GPS: C.dim, Session: C.dim,
 }
 
+import { reconcile, isFastestLap, displayLapTimeS } from '../lib/lapReconciliation'
+
 // ── formatting ────────────────────────────────────────────────────
 function fmtTime(s) {
   if (s == null) return '—'
@@ -36,9 +38,15 @@ const n1 = (v) => (v == null ? '—' : v.toFixed(1))
 function kindOf(l) {
   return l.summary?.kind ?? (l.valid ? 'timed' : 'partial')
 }
-function lapLabel(l) {
+/**
+ * `session` and `laps` are needed because the fastest lap's time comes from the
+ * .ldx summary, not the trace — see lib/lapReconciliation.js. Passing them lets
+ * the lap row agree with the "Fastest lap" stat instead of contradicting it by
+ * a few hundredths.
+ */
+function lapLabel(l, session, laps) {
   const k = kindOf(l)
-  if (k === 'timed') return fmtTime(l.lap_time_s)
+  if (k === 'timed') return fmtTime(displayLapTimeS(l, session, laps))
   return k === 'out' ? 'out-lap — not timed' : 'partial — no finish crossing'
 }
 const n2 = (v) => (v == null ? '—' : v.toFixed(2))
@@ -296,7 +304,13 @@ export default function SessionReport({ sessionId, onBack }) {
         const { session, laps } = await getSession(sessionId)
         const trace = await getSessionTrace(session).catch(() => null)
         if (!active) return
-        const firstLap = session.fastest_lap_no ?? trace?.laps?.[0]?.lap ?? laps[0]?.lap_no ?? null
+        // Open on the fastest lap only if it actually exists in the trace. The
+        // .ldx summary can name a lap the .ld does not contain (the seeded demo
+        // does exactly this), and selecting it leaves the lap picker pointing at
+        // nothing. See lib/lapReconciliation.js.
+        const { fastestLap } = reconcile(session, laps)
+        const firstLap =
+          fastestLap?.lap_no ?? trace?.laps?.[0]?.lap ?? laps[0]?.lap_no ?? null
         setLapNo(firstLap)
         setState({ loading: false, error: '', session, laps, trace })
       } catch (err) {
@@ -364,7 +378,7 @@ export default function SessionReport({ sessionId, onBack }) {
           >
             {laps.map((l) => (
               <option key={l.id} value={l.lap_no}>
-                Lap {l.lap_no}{session.fastest_lap_no === l.lap_no ? ' ★' : ''} — {lapLabel(l)}
+                Lap {l.lap_no}{isFastestLap(l, session, laps) ? ' ★' : ''} — {lapLabel(l, session, laps)}
               </option>
             ))}
           </select>
@@ -470,10 +484,15 @@ function SummaryTab({ session, laps, channels, flagged, metrics, traceLap, domai
         </div>
       </Card>
 
+      <ReconcileFlags session={session} laps={laps} />
+
       <h2 style={{ color: C.silver3, fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>Laps</h2>
       <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: 'hidden', marginBottom: 24 }}>
         {laps.map((l) => {
-          const best = session.fastest_lap_no === l.lap_no
+          // Not `session.fastest_lap_no === l.lap_no`: on a session whose
+          // summary names a lap the trace does not contain, that marks nothing
+          // and explains nothing. See lib/lapReconciliation.js.
+          const best = isFastestLap(l, session, laps)
           return (
             <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', borderBottom: `1px solid ${C.line}`, background: best ? C.pinkBg : 'transparent', fontFamily: font.mono, fontSize: 13 }}>
               <span style={{ color: best ? C.pink : C.silver2 }}>
@@ -485,7 +504,7 @@ function SummaryTab({ session, laps, channels, flagged, metrics, traceLap, domai
                   </span>
                 )}
               </span>
-              <span style={{ color: C.dim }}>{lapLabel(l)}</span>
+              <span style={{ color: C.dim }}>{lapLabel(l, session, laps)}</span>
             </div>
           )
         })}
@@ -524,6 +543,57 @@ function SummaryTab({ session, laps, channels, flagged, metrics, traceLap, domai
     </>
   )
 }
+/**
+ * Surfaces disagreements between the .ldx summary and the .ld trace.
+ *
+ * The .ldx wins — it is the more precise source and the reason we prefer it —
+ * but a headline figure its own lap table cannot corroborate has to say so.
+ * WORKING_PLAN §4: unreliable data is flagged, never hidden. Renders nothing
+ * when the two sources agree, which is the normal case.
+ */
+function ReconcileFlags({ session, laps }) {
+  const { flags } = reconcile(session, laps)
+  if (flags.length === 0) return null
+
+  const tone = {
+    high: { fg: C.danger, bd: 'rgba(255,85,85,0.35)', bg: 'rgba(255,85,85,0.08)' },
+    medium: { fg: C.warn, bd: 'rgba(232,194,74,0.35)', bg: 'rgba(232,194,74,0.08)' },
+    low: { fg: C.silver2, bd: C.line, bg: 'rgba(255,255,255,0.02)' },
+  }
+
+  return (
+    <div style={{ marginBottom: 14, display: 'grid', gap: 7 }}>
+      {flags.map((f) => {
+        const t = tone[f.severity] ?? tone.low
+        return (
+          <div
+            key={f.code}
+            style={{
+              border: `1px solid ${t.bd}`,
+              background: t.bg,
+              borderRadius: 8,
+              padding: '9px 12px',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: 1.2,
+                color: t.fg,
+                marginBottom: 4,
+              }}
+            >
+              ⚑ {f.label}
+            </div>
+            <div style={{ fontSize: 12, lineHeight: 1.55, color: C.dim }}>{f.detail}</div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function FlagBadge({ kind, children }) {
   const map = {
     empty: { fg: C.warn, bd: 'rgba(232,194,74,0.35)', bg: 'rgba(232,194,74,0.1)' },

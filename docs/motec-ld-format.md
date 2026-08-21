@@ -139,3 +139,36 @@ Key realities:
 
 The v1 `setup.py` parser must be rewritten to this INI + comment-extraction model.
 The Setup ORM model columns remain valid; only the parser changes.
+
+## `.ldx` vs `.ld` — which wins for lap data (resolved 21 Aug 2026)
+
+The two files describe laps differently and can disagree. The rule:
+
+| Fact | Authoritative source | Why |
+| --- | --- | --- |
+| Lap **boundaries** / segmentation | **`.ld`** (Beacon / Lap Number channels) | The `.ldx` carries **no** per-lap markers at all — only a summary. |
+| Lap **count**, fastest lap **number** and **time** | **`.ldx`** | Pre-decoded by MoTeC and finer than the `.ld`'s sample grid. |
+
+**When they disagree, the `.ldx` value is displayed and the disagreement is
+flagged in the UI** — never silently reconciled, never hidden
+(`WORKING_PLAN.md` §4). Implemented in `frontend/src/lib/lapReconciliation.js`.
+
+Two real cases, both found on production data during the 21 Aug acceptance run:
+
+- **Sub-sample drift.** The COTA upload's `.ldx` reports the fastest lap as
+  135.475 s; beacon segmentation computes 135.500 s for the same lap. 25 ms —
+  less than one sample period. Not a conflict, so it is **not** flagged
+  (`DRIFT_TOLERANCE_S = 0.05`); flagging it would fire on nearly every upload.
+  The `.ldx` figure is shown for that lap so the lap row and the "Fastest lap"
+  stat agree instead of differing by hundredths.
+- **Unsupportable summary.** The committed fixture's `.ld` is truncated to 300
+  samples while its `.ldx` is the full original, so the summary claims 3 laps
+  with lap 2 fastest while the trace yields a single *partial* segment. There is
+  no lap 2 to point at. This is flagged `FASTEST LAP UNVERIFIED` +
+  `LAP COUNT DISAGREES`, and every seeded demo session hits it.
+
+**Consequence for code:** never test "is this the best lap?" with
+`lap.lap_no === session.fastest_lap_no`. On a session whose summary names a
+missing lap that marks nothing and explains nothing. Use `isFastestLap()`,
+which matches only against laps that exist *and* are timed — a summary pointing
+at an out-lap is as unsupported as one pointing at nothing.
