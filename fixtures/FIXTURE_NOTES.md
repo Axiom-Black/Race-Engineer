@@ -43,12 +43,81 @@
    anchor — golden masters above were generated from exactly these bytes):
 
    ```
-   cota_gte_sanitized.ld   cc9b76ad8e02ee574657f4d0498a3161c7d23904ec1d9540fe8fc1b273dc1f7b
+   cota_gte_sanitized.ld   0f60f6588bf77dd3891acabb1e91573009b4e670b386300ab6d2d5596ef98ef1
    cota_gte_sanitized.ldx  fd4c46ef54b606e7b8329881f32a960cfb6416e29fe776f3882266b09eb15e16
    cota_gte_sanitized.svm  31770f843abbce7ebe50454897c7f08d1463f888ae70794f2c73b01d21018583
    ```
 
    Reproduce with `sha256sum fixtures/cota_gte_sanitized.*` from the repo root.
+
+6. **The fixture was replaced on 21 Aug 2026 (P0) — read this before trusting
+   any older note about it.**
+
+   The previous `.ld` had **every one of the 70 channel records' sample-count
+   fields overwritten with `2c01` (= 300 little-endian)**. The telemetry bytes
+   were all still present; only the declared counts were falsified, so the
+   parser read 300 samples per channel and lap segmentation saw **one partial
+   lap**. The file was still 849 KB — the truncation bought no space at all,
+   and cost the ability to test anything about laps.
+
+   That is not a hypothetical cost. The old fixture hid two real defects that
+   both reached `main`:
+
+   - the **out-lap** reported as a 174.3 s lap the driver never set (17 Aug), and
+   - the **`.ldx`/`.ld` lap reconciliation** bug (21 Aug), where the seeded demo
+     session advertised a fastest lap that did not exist in its own trace —
+     visible to every new account in production.
+
+   Neither was expressible with a single-segment fixture.
+
+   The current `.ld` is the same session with **only** the driver field at
+   `0x9E` scrubbed to `DRIVER_REDACTED` (15 bytes, the same length as the real
+   name, so no offsets shift). Nothing else is altered. Its shape:
+
+   | Property | Value |
+   | --- | --- |
+   | Channels | 70 |
+   | Total decoded values | **412,850** |
+   | Distinct sample counts | 589, 590, 1179, 2359, 2949, 5898, 11796, 14745, 29490 |
+   | Lap boundaries | **5** — out-lap, 3 timed laps, trailing partial |
+   | Timed lap times | 138.78 s, 135.50 s, 136.20 s |
+   | Cross-check | the `.ldx` independently reports Total Laps 3, Fastest Lap 2 |
+
+   The nine distinct sample counts matter: channels log at different rates, so
+   any code assuming one uniform count per session is wrong, and this fixture
+   now proves it.
+
+   The `.ldx` and `.svm` are **unchanged** — they were already the full,
+   sanitized originals (only the `.ld` had been doctored), which is why their
+   hashes above are the same as before.
+
+7. **Golden-master format v2 (21 Aug 2026).** `golden_master_ld.json` records a
+   **SHA-256 over each channel's complete decoded array** rather than embedding
+   every value. Full arrays at 412,850 values would be ~6 MB of committed JSON;
+   the hashed form is **33 KB** and covers *every* sample, where storing every
+   Nth sample could not see a regression between the samples it kept. Decode
+   parameters, count, extremes and the first/last five values are kept in plain
+   text so a mismatch is diagnosable rather than merely detected.
+
+   Regenerate with:
+
+   ```
+   python backend/scripts/generate_golden_masters.py           # write
+   python backend/scripts/generate_golden_masters.py --check   # verify
+   ```
+
+   The generator is committed (it previously did not exist, which made "generated
+   from exactly these bytes" a promise rather than a check) and `--check` runs in
+   CI as part of Ring 1. The Python reference remains the arbiter: the JS port is
+   verified against **its** hashes, never the reverse.
+
+   The canonical form the hash is taken over is defined identically in three
+   places and must stay byte-identical across all of them — 6 fixed decimals,
+   negative zero normalised to zero, joined by `,`, hashed as UTF-8:
+   `backend/scripts/generate_golden_masters.py`,
+   `backend/tests/unit/test_motec_parser.py`, and
+   `frontend/src/lib/motec/golden.test.js`. All 70 channel hashes were confirmed
+   to agree between Python and JavaScript.
 
 ---
 

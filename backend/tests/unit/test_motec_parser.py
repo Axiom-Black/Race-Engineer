@@ -90,6 +90,20 @@ FIXTURE = build_fixture()
 
 # ── Unit tests (synthetic) ────────────────────────────────────────
 
+def _canonical_digest(values: list[float]) -> str:
+    """Mirror backend/scripts/generate_golden_masters.py exactly.
+
+    Six fixed decimals, negative zero normalised (Python renders -0.0 as
+    "-0.000000" where JS's toFixed gives "0.000000"), joined by ',', UTF-8.
+    """
+    parts = []
+    for v in values:
+        if v == 0:
+            v = 0.0
+        parts.append(f"{v:.6f}")
+    return _hashlib.sha256(",".join(parts).encode("utf-8")).hexdigest()
+
+
 class TestHeader:
     def test_header_fields(self) -> None:
         ld = parse_ld(FIXTURE)
@@ -269,6 +283,7 @@ class TestRealFile:
 # These do NOT skip — the fixture ships in the repo, so CI always runs them.
 # This is the Ring 0 / Ring 1 path: safe data, always present.
 
+import hashlib as _hashlib
 import json as _json
 from pathlib import Path as _Path
 
@@ -311,8 +326,38 @@ class TestSanitizedFixture:
             assert ch.shift == gch["shift"], f"{name} shift drift"
             assert ch.scale == gch["scale"], f"{name} scale drift"
             decoded = decode_samples(data, ch)
-            rounded = [round(v, 4) for v in decoded]
-            assert rounded == gch["decoded"], f"{name} decoded trace drift vs golden master"
+            # Golden master v2 (21 Aug 2026) asserts a SHA-256 over the whole
+            # decoded array instead of embedding every value: the multi-lap
+            # fixture carries 412,850 values across 70 channels, which as full
+            # arrays was ~6 MB of committed JSON. The hash covers every sample —
+            # decimating would not. Canonical form is defined once, in
+            # backend/scripts/generate_golden_masters.py, and must stay
+            # byte-identical to the JS side or neither verifies anything.
+            assert len(decoded) == gch["count"], f"{name} sample count drift"
+            assert _canonical_digest(decoded) == gch["sha256"], (
+                f"{name} decoded trace drift vs golden master"
+            )
+            # Redundant while the hash passes; the only readable signal when it
+            # does not.
+            assert round(min(decoded), 6) == gch["min"], f"{name} min drift"
+            assert round(max(decoded), 6) == gch["max"], f"{name} max drift"
+
+    def test_fixture_is_the_full_multi_lap_session(self) -> None:
+        """The fixture must be able to express multi-lap logic at all.
+
+        Its predecessor had every channel record overwritten to report 300
+        samples, so lap segmentation saw a single partial lap. That hid two real
+        bugs (out-lap classification, .ldx/.ld lap reconciliation) and shipped a
+        demo session advertising a fastest lap that did not exist.
+        """
+        data = _LD.read_bytes()
+        ld = parse_ld(data)
+        decode_all(data, ld)
+        bounds = lap_boundaries(ld)
+        # out-lap + 3 timed + trailing partial
+        assert len(bounds) == 5, f"expected 5 segments, got {len(bounds)}"
+        total = sum(len(c.samples) for c in ld.channels.values())
+        assert total > 400_000, f"fixture looks truncated: {total} decoded values"
 
     def test_scale_term_channels(self) -> None:
         """G1.5-Q1 — the three scale!=1 channels decode with the scale divisor."""

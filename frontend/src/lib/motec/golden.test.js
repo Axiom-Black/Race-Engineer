@@ -5,6 +5,7 @@
 // enforcement of TESTING_GATES.md §5: the JS port must reproduce the
 // verified decode value-for-value (float tolerance only).
 import { describe, it, expect } from 'vitest';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,9 +27,39 @@ const goldenDomains = JSON.parse(
   readFileSync(join(FIXTURES, 'golden_master_domains.json'), 'utf-8'),
 );
 
-// Golden decoded values are rounded to 4 decimals by the generator; allow
-// only that rounding margin. "Float tolerance only" per G4.1.
-const TOL = 5.0000001e-5;
+// Golden master v2 (21 Aug 2026) asserts each channel with a SHA-256 over its
+// COMPLETE decoded array rather than embedding every value — the multi-lap
+// fixture carries 412,850 decoded values, which as full arrays was ~6 MB of
+// committed JSON. The hash covers every sample; decimating would not.
+//
+// The canonical form must match backend/scripts/generate_golden_masters.py
+// byte for byte or nothing verifies: 6 fixed decimals, negative zero
+// normalised (Python renders -0.0 as "-0.000000", JS's toFixed gives
+// "0.000000"), joined by ',', hashed as UTF-8.
+const DECIMALS = 6;
+function canonical(values) {
+  const parts = new Array(values.length);
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i] === 0 ? 0 : values[i];
+    parts[i] = v.toFixed(DECIMALS);
+  }
+  return parts.join(',');
+}
+function digest(values) {
+  return createHash('sha256').update(canonical(values), 'utf8').digest('hex');
+}
+// Single-pass extremes: the fixture's fastest channels hold 29,490 samples, and
+// Math.min(...arr) is exactly the spread that throws RangeError on long arrays.
+function extremes(values) {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of values) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return { min, max };
+}
+const round6 = (v) => Number(v.toFixed(DECIMALS));
 
 describe('G4.1 / G1.2 — .ld decode matches the golden master', () => {
   const ld = parseLd(ldBytes);
@@ -58,27 +89,44 @@ describe('G4.1 / G1.2 — .ld decode matches the golden master', () => {
       expect(ch.shift, `${name}.shift`).toBe(g.shift);
       expect(ch.scale, `${name}.scale`).toBe(g.scale);
       expect(ch.sampleRateHz, `${name}.rate`).toBe(g.sample_rate_hz);
-      expect(ch.sampleCount, `${name}.count`).toBe(g.sample_count);
+      expect(ch.sampleCount, `${name}.count`).toBe(g.count);
       expect(ch.bytesPerSample, `${name}.size`).toBe(g.bytes_per_sample);
       expect(ch.unit, `${name}.unit`).toBe(g.unit);
     }
   });
 
-  it('decoded traces match value-for-value within rounding tolerance', () => {
+  it('every decoded sample matches the Python reference, by hash', () => {
+    // 70 channels, 412,850 values. A hash mismatch means the JS port diverged
+    // from the verified Python decode somewhere in that channel — the count,
+    // extremes and edge assertions below narrow down where.
     for (const [name, g] of Object.entries(goldenLd.channels)) {
       const ch = ld.channels[name];
-      expect(ch.samples.length, `${name} sample count`).toBe(g.decoded.length);
-      for (let i = 0; i < g.decoded.length; i++) {
-        const diff = Math.abs(ch.samples[i] - g.decoded[i]);
-        if (diff > TOL) {
-          throw new Error(`${name}[${i}] diverges: js=${ch.samples[i]} golden=${g.decoded[i]}`);
-        }
-      }
-      const min = Math.min(...ch.samples);
-      const max = Math.max(...ch.samples);
-      expect(Math.abs(min - g.decoded_min), `${name}.min`).toBeLessThanOrEqual(TOL);
-      expect(Math.abs(max - g.decoded_max), `${name}.max`).toBeLessThanOrEqual(TOL);
+      expect(ch.samples.length, `${name} sample count`).toBe(g.count);
+      expect(digest(ch.samples), `${name} decoded-array sha256`).toBe(g.sha256);
     }
+  });
+
+  it('decoded extremes and edge samples match, so a mismatch is diagnosable', () => {
+    // Redundant with the hash when everything passes — and the only readable
+    // signal when it does not.
+    for (const [name, g] of Object.entries(goldenLd.channels)) {
+      const ch = ld.channels[name];
+      if (ch.samples.length === 0) continue;
+      const { min, max } = extremes(ch.samples);
+      expect(round6(min), `${name}.min`).toBe(g.min);
+      expect(round6(max), `${name}.max`).toBe(g.max);
+      expect(ch.samples.slice(0, g.first.length).map(round6), `${name}.first`).toEqual(g.first);
+      expect(ch.samples.slice(-g.last.length).map(round6), `${name}.last`).toEqual(g.last);
+    }
+  });
+
+  it('covers the whole fixture, not a truncated slice of it', () => {
+    // The previous fixture had every channel record overwritten to report 300
+    // samples, so it could not express multi-lap logic at all — and it hid two
+    // real bugs. This pins that the committed fixture is the full session.
+    const total = Object.values(goldenLd.channels).reduce((a, c) => a + c.count, 0);
+    expect(total).toBe(goldenLd._meta.total_decoded_values);
+    expect(total).toBeGreaterThan(400000);
   });
 
   it('G1.3 — quality flags match the golden master (reliable / all_zero)', () => {
@@ -90,8 +138,14 @@ describe('G4.1 / G1.2 — .ld decode matches the golden master', () => {
   });
 
   it('G1.3 — lap boundaries come from the .ld Lap Number channel', () => {
-    const bounds = lapBoundaries(ld).map(({ lap, startS }) => ({ lap, start_s: startS }));
+    const bounds = lapBoundaries(ld).map(({ lap, startS }) => ({
+      lap,
+      start_s: Number(startS.toFixed(3)),
+    }));
     expect(bounds).toEqual(goldenLd.lap_boundaries);
+    // The fixture must keep exercising multi-lap segmentation: an out-lap, at
+    // least two timed laps, and a trailing partial.
+    expect(bounds.length).toBeGreaterThanOrEqual(4);
   });
 });
 
