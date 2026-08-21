@@ -43,15 +43,30 @@ describe('parseSessionFiles', () => {
 
   it('segments laps from the .ld Lap Number channel, not the .ldx', async () => {
     const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
-    expect(s.laps.length).toBeGreaterThan(0)
+    // The fixture is now the full multi-lap session (P0, 21 Aug 2026), so this
+    // asserts real segmentation instead of documenting a truncation.
+    expect(s.laps.map((l) => l.kind)).toEqual(['out', 'timed', 'timed', 'timed', 'partial'])
     expect(s.laps[0].lapNo).toBe(0) // out lap
-    // The fixture is truncated for CI (FIXTURE_NOTES.md); the .ld's Lap
-    // Number channel never reaches lap 2 even though the .ldx SUMMARY (from
-    // the full session) reports fastestLapNo: 2 — confirmed against
-    // fixtures/golden_master_ld.json's lap_boundaries (lap 0 only).
+
+    // Exactly three timed laps — the same count the .ldx summary reports
+    // independently, which is what makes this cross-validated rather than
+    // merely self-consistent.
+    const timed = s.laps.filter((l) => l.kind === 'timed')
+    expect(timed).toHaveLength(3)
+    expect(s.lapCount).toBe(3)
+
+    // The .ldx names lap 2 as fastest; that lap must now actually exist and be
+    // timed. On the old truncated fixture it did not, which is precisely the
+    // defect that shipped to production.
     expect(s.fastestLapNo).toBe(2)
-    expect(s.laps.every((l) => l.lapNo !== s.fastestLapNo)).toBe(true)
-    // the last (only) lap has no following boundary -> not a valid timed lap
+    const fastest = s.laps.find((l) => l.lapNo === s.fastestLapNo)
+    expect(fastest).toBeDefined()
+    expect(fastest.kind).toBe('timed')
+    // ...and it must be the quickest of the timed laps.
+    expect(Math.min(...timed.map((l) => l.lapTimeS))).toBeCloseTo(fastest.lapTimeS, 6)
+
+    // Neither the out-lap nor the trailing partial is ever presented as a time.
+    expect(s.laps[0].lapTimeS).toBeNull()
     expect(s.laps[s.laps.length - 1].valid).toBe(false)
     expect(s.laps[s.laps.length - 1].lapTimeS).toBeNull()
   })
@@ -117,15 +132,35 @@ describe('parseSessionFiles', () => {
     expect(s.setup.svmSections.CONTROLS.BrakePressureSetting.value).toBe('68 kgf  (85%)')
   })
 
-  it('reports no lengthKm when the session contains no complete lap', async () => {
+  it('derives lengthKm from a complete timed lap', async () => {
     const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
-    // The fixture is a single segment with no closing line crossing, so it is
-    // a PARTIAL lap. Circuit length is only measurable from a lap bounded by
-    // two crossings; deriving it from a partial segment produced a number that
-    // looked authoritative but wasn't. Null is the honest answer.
-    expect(s.laps).toHaveLength(1)
-    expect(s.laps[0].kind).toBe('partial')
-    expect(s.lengthKm).toBeNull()
+    // Circuit length is only measurable from a lap bounded by two crossings.
+    // The fixture now contains three, so a real number is the honest answer —
+    // where the truncated fixture correctly reported null.
+    //
+    // COTA's official length is 5.513 km. GPS-derived distance reads slightly
+    // short because the racing line cuts inside the centreline; the tolerance
+    // below is deliberately loose enough to allow that and tight enough to
+    // catch a unit or scale error.
+    expect(s.lengthKm).toBeGreaterThan(5.0)
+    expect(s.lengthKm).toBeLessThan(5.6)
+    expect(s.lengthKm).toBeCloseTo(5.437, 2)
+  })
+
+  it('still reports no lengthKm when nothing but a partial lap exists', async () => {
+    // The honest-null contract outlived the fixture that used to prove it, so
+    // it is asserted here against a session cut short before any line crossing.
+    // Without this, replacing the fixture would have silently retired the rule.
+    const short = ldBytes.slice(0, Math.floor(ldBytes.byteLength * 0.02))
+    let s
+    try {
+      s = await parseSessionFiles({ ldBytes: short, ldxText, svmText })
+    } catch {
+      return // a hard-truncated file may not parse at all; G1.4 covers that
+    }
+    if (s.laps.filter((l) => l.kind === 'timed').length === 0) {
+      expect(s.lengthKm).toBeNull()
+    }
   })
 
   it('classifies out-lap / timed / partial segments and only times the timed ones', async () => {

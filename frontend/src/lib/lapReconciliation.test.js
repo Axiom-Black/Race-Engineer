@@ -27,9 +27,14 @@ const REAL_LAPS = [
   { lap_no: 4, lap_time_s: null, valid: false, summary: { kind: 'partial' } },
 ]
 
-// Seeded demo: the committed fixture. Its .ldx claims 3 laps with lap 2
-// fastest; its truncated .ld yields ONE partial segment. Every new account
-// sees this session.
+// The PRE-P0 demo shape, retained as a regression case. Until 21 Aug 2026 the
+// committed fixture had every channel record overwritten to report 300 samples,
+// so its .ldx claimed 3 laps with lap 2 fastest while its .ld yielded ONE
+// partial segment — and every new account saw that. P0 replaced the fixture with
+// the full multi-lap session, so a freshly seeded demo is now self-consistent
+// and raises no flags. This shape is kept because the inconsistency it
+// represents is still reachable: any truncated or partially-exported .ld
+// produces it, and demo rows seeded before P0 still carry it.
 const DEMO_SESSION = {
   lap_count: 3,
   fastest_lap_no: 2,

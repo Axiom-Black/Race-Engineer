@@ -98,6 +98,14 @@ jobs:
         working-directory: backend
         run: python -m pytest tests/unit/ -q
 
+      # G4.3, made reproducible (21 Aug 2026). The golden masters used to have
+      # no committed generator - they arrived with the S1 reference bundle, so
+      # "generated from exactly these bytes" was a promise rather than a check.
+      # This regenerates from the committed fixture with the Python reference
+      # (the arbiter) and fails if the committed master differs.
+      - name: "G4.3 - golden master is reproducible from the committed fixture"
+        run: python backend/scripts/generate_golden_masters.py --check
+
   ring3-auth-tenancy:
     name: "Ring 3 · Auth & tenancy (G3.1/G3.2/G3.4/G3.5/G3.6)"
     needs: ring1-parser-truth

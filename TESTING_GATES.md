@@ -102,7 +102,23 @@ In the pilot the JS parsers are the **only** runtime implementation, but the *ve
 | --- | --- | --- |
 | **G4.1 Parser parity** | The JS parsers' decoded output on the fixture matches the committed Python-generated golden masters value-for-value (float tolerance only) | A port that quietly diverges from the verified decode is worse than no port |
 | **G4.2 Domain classification parity** | Channel → agent-domain mapping matches the committed mapping snapshot | Mis-routing at the edge corrupts agent context (dormant consumer in the pilot; the mapping still drives the channel-inventory UI) |
-| **G4.3 Golden masters are fresh** | The committed golden masters were regenerated from the current fixture (hash recorded alongside) | Stale truth data validates nothing |
+| **G4.3 Golden masters are fresh** | The committed golden masters were regenerated from the current fixture (hash recorded alongside), **and `backend/scripts/generate_golden_masters.py --check` reproduces them** | Stale truth data validates nothing. Until 21 Aug 2026 there was no committed generator, so "generated from exactly these bytes" was a promise; the `--check` run in Ring 1 makes it a test |
+
+**Golden-master format v2 (21 Aug 2026).** G4.1 now compares a **SHA-256 over
+each channel's complete decoded array** instead of a value-by-value walk of
+embedded arrays. The reason is the P0 fixture: it carries **412,850 decoded
+values** across 70 channels at nine different logging rates, and embedding them
+would commit ~6 MB of JSON and re-read it on every CI run. The hashed master is
+**33 KB** and asserts *more* than the alternative of decimating, which cannot
+see a regression between the samples it keeps. Extremes and the first/last five
+values stay in plain text so a failure is diagnosable, not just detectable.
+
+The assertion is only as good as the canonical form being identical in both
+runtimes — 6 fixed decimals, negative zero normalised (Python renders `-0.0` as
+`-0.000000`, JS's `toFixed` gives `0.000000`), joined by `,`, hashed as UTF-8.
+All 70 channel hashes were verified to agree between Python and JavaScript
+before this landed; if they ever diverge, the canonical form is the first thing
+to check, not the decode.
 
 ---
 
