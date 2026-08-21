@@ -1,0 +1,90 @@
+# ByteCraft Racing — keep the free-tier Supabase project awake.
+#
+# WHY THIS EXISTS.
+#
+# Supabase free projects pause after ~1 week of inactivity. Once paused, every
+# request from the deployed app fails until someone opens the Supabase
+# dashboard. For a pilot with real users that is indistinguishable from the
+# product being broken — and it happens precisely when the app is quiet, which
+# is exactly when a first-time visitor is most likely to be the one who finds
+# it.
+#
+# API requests count as activity, so a cheap scheduled read keeps the project
+# alive. This runs twice a week to leave a margin: a single weekly ping that
+# fails (runner outage, GitHub incident) would let the clock run out.
+#
+# Cost: a few seconds of Actions time per run — negligible against the free
+# tier's monthly allowance.
+#
+# HONEST CAVEAT: this is best-effort, not a guarantee. Supabase does not
+# document exactly which signals reset the inactivity timer, and the policy can
+# change. The app still degrades gracefully if the project is asleep
+# (lib/serviceHealth.js turns the failure into "waking from idle, try again"
+# rather than a raw fetch error), and that remains the real safety net.
+#
+# SETUP REQUIRED (owner, one time):
+#   Repo → Settings → Secrets and variables → Actions → New repository secret
+#     SUPABASE_URL              https://<project>.supabase.co
+#     SUPABASE_PUBLISHABLE_KEY  the publishable (anon) key
+#   Both are client-safe values — they already ship inside the browser bundle —
+#   but they live in secrets rather than in this file so that rotating the
+#   project does not require a commit.
+#
+# Until those secrets exist the job SKIPS rather than fails, so an unconfigured
+# repo does not show a permanently red workflow.
+
+name: keepalive
+
+on:
+  schedule:
+    # 06:17 UTC on Mondays and Thursdays. Deliberately not on the hour —
+    # scheduled jobs at :00 contend with everyone else's and get delayed.
+    - cron: "17 6 * * 1,4"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    name: "Ping Supabase so the project does not pause"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check configuration
+        id: cfg
+        env:
+          URL: ${{ secrets.SUPABASE_URL }}
+          KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY are not set — skipping."
+            echo "Add them under Settings > Secrets and variables > Actions to enable the keepalive."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ping the REST endpoint
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          URL: ${{ secrets.SUPABASE_URL }}
+          KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          # A HEAD against a table under RLS. As an anonymous caller this
+          # returns zero rows by design — the point is to register activity,
+          # not to read data, so RLS staying closed is the correct outcome.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+                  -X HEAD "$URL/rest/v1/sessions?select=id&limit=1" \
+                  -H "apikey: $KEY" \
+                  -H "Authorization: Bearer $KEY" \
+                  --max-time 30 --retry 3 --retry-delay 5 --retry-connrefused)
+          echo "HTTP $code"
+          # 2xx = awake and answering. 4xx = awake and refusing us, which is
+          # also fine: the project served the request. Only 5xx / no answer
+          # means it may actually be down or paused.
+          case "$code" in
+            2*|4*) echo "Project is awake." ;;
+            *)
+              echo "::error::Supabase returned $code — the project may be paused or down."
+              echo "Open the Supabase dashboard to wake it, then re-run this workflow."
+              exit 1
+              ;;
+          esac

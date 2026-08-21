@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { C, font } from '../theme'
 import { listSessions } from '../lib/sessions'
 import { useAuth } from '../lib/auth'
+import FaultNotice from './FaultNotice'
 import { loadTiers, saveTiers } from '../lib/prefs'
 import {
   ALL_CARS,
@@ -85,13 +86,13 @@ function Sparkline({ bests }) {
 export default function ProgressionTab() {
   const { user } = useAuth()
   const [sessions, setSessions] = useState(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(null)
   const [car, setCar] = useState(ALL_CARS)
   const [tiers, setTiers] = useState(DEFAULT_TIERS)
   const [storageWarning, setStorageWarning] = useState(false)
 
   useEffect(() => {
-    listSessions().then(setSessions).catch((e) => setError(e.message))
+    listSessions().then(setSessions).catch(setError)
   }, [])
 
   // Thresholds are per driver: re-read whenever the signed-in user changes,
@@ -119,7 +120,7 @@ export default function ProgressionTab() {
     if (car !== ALL_CARS && !cars.includes(car)) setCar(ALL_CARS)
   }, [cars, car])
 
-  if (error) return <p style={{ color: C.danger, fontSize: 13 }}>{error}</p>
+  if (error) return <FaultNotice error={error} />
   if (sessions === null) return <p style={{ color: C.dim }}>Loading…</p>
 
   const heading = (

@@ -56,9 +56,9 @@ You need a Vercel account with access to the `Axiom-Black` GitHub org.
 
   *This bit us: confirmation was disabled 12 Aug for test-signup friction and
   was still off when the pilot went public on 17 Aug.*
-- **Free-tier caveats:** the project **pauses after ~1 week of inactivity** —
-  just open the dashboard (or the app) to wake it before a demo. Storage is
-  capped at 1 GB (~1,100 raw sessions); the demo fixture is tiny.
+- **Free-tier limits** (inactivity pause, 1 GB storage cap) have their own
+  policy section at the end of this document — including the keepalive workflow
+  and what the app shows a driver when either one bites.
 
 ## Smoke test the live URL
 
@@ -131,3 +131,48 @@ The accepted trade-off: an error thrown before that chunk resolves is buffered
 and flushed on arrival, but an error that kills the page *during* that window
 can still be lost. Full first-byte fidelity would cost 156 kB gzipped on every
 visit, which is the wrong trade for this product.
+
+## Free-tier operating limits — the policy
+
+Two Supabase free-tier behaviours are **expected operating conditions**, not
+bugs. Both are now handled in code; this is the decision record.
+
+### 1 · The project pauses after ~1 week of inactivity
+
+Once paused, every request from the deployed app fails until someone opens the
+Supabase dashboard. It happens exactly when the app is quiet, which is when a
+first-time visitor is most likely to be the person who finds it.
+
+- **Prevention:** `.github/workflows/keepalive.yml` pings the REST endpoint
+  twice weekly (Mon/Thu). API requests count as activity. **Requires two repo
+  secrets** — `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` — and skips with a
+  warning rather than failing if they are absent.
+- **Graceful degradation:** if it pauses anyway, `lib/serviceHealth.js`
+  classifies the failure and the driver sees *"Service temporarily unavailable
+  — it may be waking from idle… your data is safe"* with a **Try again**
+  button, instead of `TypeError: Failed to fetch`.
+- **Caveat:** the keepalive is best-effort. Supabase does not document which
+  signals reset the inactivity timer, and the policy can change. The graceful
+  degradation is the real safety net.
+
+### 2 · Storage caps at 1 GB (~1,100 raw sessions)
+
+- **At the cap:** uploads fail. The driver sees *"Storage is full … Existing
+  sessions are unaffected. Delete an old session to free space"* — not a raw
+  413.
+- **Monitoring:** Supabase dashboard → Storage. There is no client-side usage
+  API on the free tier, so this is a periodic manual check, not an automated
+  gate. Check it before inviting a batch of users.
+- **At ~80%, the options, cheapest first:** delete raw `.ld` blobs for old
+  sessions while keeping summaries and traces (the raw file is only needed for
+  re-ingest — summaries and the ~400-pt/lap trace are what the UI reads); then
+  per-driver retention limits; then a paid tier.
+- **Deliberately not built yet:** no quota enforcement, no per-driver caps.
+  With a single-digit user count that would be infrastructure without a
+  user-visible capability attached (WORKING_PLAN §4). The honest failure
+  message is the increment that was worth shipping.
+
+### Postgres, for completeness
+
+500 MB. Not a near-term concern: traces live in Storage, not Postgres — that
+was the point of the S5 reconciliation — so rows are small summaries.
