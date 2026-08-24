@@ -15,6 +15,10 @@ phases — receive AI race-engineering debriefs from a ten-agent system.
 > *process* for agent–human delivery: the six-stage phase loop, the Human-Only
 > Action Register, the ring ladder, the five proofs, and the decision protocol.
 > Read it before opening or closing a phase. It is revised at every phase close.
+> Its portable core auto-loads as the **axiomblack-build-governance** skill
+> (`.claude/skills/axiomblack-build-governance/`); the doc is this repo's
+> instance of that standard and **wins on specifics** — phase history, the
+> retrofit, the ring IDs and the revision log live there.
 >
 > **Governing standard.** The **Axiom Black DE Codex**
 > (`.claude/skills/axiomblack-de-codex/`) is the binding engineering standard
