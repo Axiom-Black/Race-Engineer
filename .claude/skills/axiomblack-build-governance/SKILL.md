@@ -1,196 +1,124 @@
 ---
 name: axiomblack-build-governance
 description: >
-  Axiom Black build governance — the mandatory PROCESS standard for how an agent and a
-  human deliver software together. Governs the phase loop (Premise → Slice → Ground →
-  Build → Prove → Close), what only a human can do and how to hand it off, what counts
-  as proof, branch and merge discipline, and how decisions get logged. ALWAYS trigger
-  when: opening or closing a phase, iteration, sprint or milestone; planning or slicing
-  work; asking the human to do anything the agent cannot (authorise, click a dashboard,
-  hold a credential, spend money, judge quality, supply real data); claiming something
-  is done, verified, working or shipped; opening, merging or cleaning up a PR or branch;
-  choosing between options that cost money or lock in a vendor; or writing a status
-  update, retrospective or decision log. Also trigger on "what's next", "is this done",
-  "ship it", "our process", "the process", "phase plan", "close the phase", "hand off",
-  "acceptance criteria", "definition of done", "gates". Trigger proactively at the START
-  of any multi-step build task and BEFORE reporting completion, even if process is not
-  named. This is the PROCESS standard; axiomblack-de-codex is the CODE standard — they
-  are complementary and both apply.
+  The Axiom Black Build Governance standard — the five Lean principles (Define Value, Map the Value
+  Stream, Create Flow, Establish Pull, Pursue Perfection) governing HOW every Axiom Black build is run: what to build, in what order, and why. The product-governance layer ABOVE the
+  engineering Codex (which governs how code is written). A LIVING STANDARD: consult it whenever shaping
+  or steering a build. ALWAYS trigger when the task involves planning a project, product, or release; writing or prioritizing a roadmap, backlog, phase plan, or sprint; defining scope, KPIs, or acceptance criteria; deciding what to build next or whether to build it at all; cutting scope; or mapping a workflow to
+  remove waste. Also trigger on "value", "roadmap",
+  "backlog", "prioritization", "MVP", "scope", "governance", or "what should we build". Trigger
+  proactively at the START of any build-planning task even if Lean is not named. For code-level rules
+  use axiomblack-de-codex instead; this governs the build process, that governs the code.
 ---
 
-# Axiom Black Build Governance
+# Axiom Black Build Governance — The Five Principles
 
-The engineering standard (`axiomblack-de-codex`) governs *what good code is*. This
-governs *how an agent and a human get it built and shipped without lying to each other*.
+This skill is Axiom Black's binding standard for **how a build is run as a value-delivery process**.
+It governs *what* to build, *in what order*, and *why* — the product and project altitude.
 
-Every rule here was paid for by a real incident. None is inferred from principle.
+It has a sibling: **`axiomblack-de-codex`** governs *how the code itself is engineered* (architecture,
+craft, tests). Keep the two straight — this skill decides what work is worth doing; the Codex decides
+how that work is done well. When both apply, this one shapes the plan and the Codex shapes the build.
 
-**If the repo contains a delivery-process document** (`docs/agentic-delivery-process.md`
-or equivalent), that document is this standard's local instance: it carries the
-project's own phase history, retrofit and revision log, and it **wins on specifics**.
-This skill is the portable core that applies with or without it.
+## How to use this skill
 
----
+Structured two-tier, like the Codex, so you load only what the moment needs:
 
-## 1 · The one asymmetry everything else follows from
+1. **Tier 1 — The Five Principles + the decisions they force (below).** Loaded whenever the skill
+   triggers. Read it at the start of any build-planning task. Each principle is paired with the
+   concrete decision it forces, because a principle you cannot act on is decoration.
+2. **Tier 2 — The Commentary (`references/commentary.md`).** For each principle: what it means, the
+   waste it removes, how it shows up in an Axiom Black build, the anti-patterns it forbids, and how
+   adherence is checked. Read the relevant entry on demand — do not preload the file.
+3. **Amendment (`references/amendment.md`).** Read only when adding to or changing the standard.
 
-An agent can write, test, verify, audit and document faster and more consistently
-than a human. An agent **cannot**:
+### Operating protocol for a build-planning task
 
-- authorise anything (OAuth connections, app installs, org grants)
-- hold a credential, or decide what a credential may reach
-- click a dashboard the credential-holder owns
-- spend money, or choose a billing tier
-- judge whether a product's output is *good*
-- supply real user data
-- decide what the product is for
-
-**Therefore the agent's job is to reduce every task to either (a) something it can
-fully own, or (b) a single, precisely specified human action.**
-
-> Vague handoffs are the dominant failure mode of this partnership — not bad code.
-
-### 1.1 · Human-Only Action Register (MUST)
-
-Maintain one list, in the tracker, of every outstanding human action. A human action
-that lives only in chat scrollback is lost. Each entry carries an owner, the exact
-action, and what is blocked until it happens.
-
-### 1.2 · Handoff format (MUST)
-
-An agent asking for a human action MUST give all five:
-
-1. the exact navigation path (`Settings → Rules → New branch ruleset`)
-2. the exact values, copy-pasteable
-3. what breaks if it is skipped
-4. what the agent will do the moment it is done
-5. any **ordering constraint** with other human actions
-
-> **Real failure this prevents.** "Re-enable Confirm email" was handed off without
-> the ordering constraint. Enabling confirmation *before* adding the production
-> redirect URL sends every new user a confirmation link pointing at `localhost`.
-> Two one-line tasks, and the order is load-bearing.
-
-### 1.3 · Capability probing (MUST)
-
-Before planning around a capability, **exercise it once**. Never infer it from
-documentation, from a similar tool, or from a previous session — and never assert a
-limitation you have not hit.
-
-> **Real failures.** (a) A whole branch-cleanup plan was written before discovering
-> ref deletion returned `403` from that environment. (b) "Move the FastAPI service to
-> Supabase Edge Functions" was impossible as stated — Edge Functions run Deno, the
-> service was 2,272 lines of Python. (c) An agent asserted a platform tier could not
-> protect private repos; the human pushed back, and probing showed the 403s were the
-> agent's own environment. **Correct the record explicitly when this happens.**
+- **At the start:** load Tier 1. Run the build through the five principles before committing a plan.
+- **During:** when a planning decision touches a principle, apply the decision it forces. If the
+  *why* is unclear, read that principle's Commentary entry.
+- **Precedence:** this skill governs the *process*; the Codex governs the *code*. Where a planning
+  choice would force an engineering compromise, name the tension — do not silently trade quality for
+  scope (that is a Pursue-Perfection violation, and a Codex violation).
+- **At handoff:** the plan you leave must make value, sequence, and rationale explicit (Principle 1
+  and 5), so the next worker inherits *why*, not just *what*.
 
 ---
 
-## 2 · The phase loop
+# TIER 1 · THE FIVE PRINCIPLES
 
-Six stages. A stage is not left until its exit condition is true.
+Each principle states the idea, then the **decision it forces** at build time. The forced decision is
+the operational part — it is what an agent or a human actually does differently because of the principle.
 
-| Stage | Owner | Exit condition |
-| --- | --- | --- |
-| **0 · Premise check** | agent | The request's stated premise has been tested against reality. Highest-leverage stage in the loop. |
-| **1 · Slice** | agent proposes, human ratifies | Every slice is independent, small, and has exactly one acceptance test. No test, no story. |
-| **2 · Ground** | agent (blocking) | Every format, API and assumption the build depends on is verified against a real artifact — not a doc, not a sample. |
-| **3 · Build** | agent owns, human unblocks | Smallest increment that leaves something a user would pay for. |
-| **4 · Prove** | agent | The five proofs (§4) hold. Most-skipped stage, and the most valuable. |
-| **5 · Close** | agent writes, human confirms | Tracker, decision log and revision log updated. If it isn't written down, it didn't happen. |
+## 1 — Define Value
+*Find out what the customer wants and is willing to pay for. Set KPIs to measure progression toward the goal.*
 
-**Stage 0 is not optional and not a formality.** Its job is to kill wrong work before
-it is built.
+- **Forces:** No work is planned without a named customer and the value they would pay for, stated
+  first. Every objective carries a KPI that measures progress toward it — if you cannot name the
+  metric, you have not defined the value. Value is defined from the customer's side, never the
+  builder's convenience.
 
-> **Real saves.** Three pieces of work were cancelled at Stage 0 in a single phase:
-> a share-link feature that did not serve the goal it was requested for, a
-> model-provider switch worth ~$10/month, and a service "lift" to a runtime that
-> could not host the language it was written in. Each was ~15 minutes of checking
-> against days of building.
+## 2 — Map the Value Stream
+*Look at every step in the process and remove the ones that do not add value. Produce an action plan for improvement.*
 
----
+- **Forces:** Before building, lay out the full sequence of steps from idea to delivered value, and
+  mark each as value-adding or waste. Waste is cut or an action plan is written to remove it. A step
+  that survives the map must justify the value it adds; "we've always done it" is not a justification.
 
-## 3 · Standing gates
+## 3 — Create Flow
+*Make the remaining work steps move smoothly, without delays or blocks. Create standard work.*
 
-Define a ring ladder — an ordered set of gates, each with an ID and a machine check —
-and make **CI the authoritative version**. Where a prose table and the CI workflow
-disagree, the workflow wins; fix the table.
+- **Forces:** Sequence work so it moves without stalls, handoff gaps, or blocking dependencies; a
+  blocker is surfaced and cleared, never worked around silently. Recurring work is captured as
+  standard, reusable procedure (a template, a checklist, a gate) so it is not reinvented each time.
 
-Rules that hold regardless of the ladder's shape:
+## 4 — Establish Pull
+*Make products or services only when the customer asks for them.*
 
-- **A gate that cannot fail is not a gate.** Every gate needs a negative case proving
-  it goes red on the defect it exists to catch.
-- **No push to the protected branch that has not cleared the ladder.**
-- **A refused build is the guard working.** Do not route around it.
+- **Forces:** Build backlog items only when they are pulled into active work by real, present demand —
+  not on speculation about future need. The backlog is parked until pulled; scope is added by demand,
+  not by anticipation. Do not build ahead of the pull signal.
 
----
+## 5 — Pursue Perfection
+*Keep improving the system over and over to remove all waste.*
 
-## 4 · The five proofs
-
-Before claiming anything is done:
-
-1. **It runs where the user is** — not only where the agent is.
-2. **The artifact is real** — inspect the built output, not the build log.
-3. **The negative case fails** — the check goes red when the defect is present.
-4. **The data is the real data** — a fixture that has been convenienced into
-   agreement proves nothing.
-5. **The claim matches the evidence** — state what was measured, in what environment.
-
-> **The pattern behind every production defect in one real phase — all six — was
-> identical: a check passed in a friendlier environment than the one that mattered.**
-> Green tests are not the proof. The proof runs where the user is.
-
-**Anomalies are load-bearing.** An unexpected result is evidence, never noise. An
-identical build hash across a substantial source change is how a hollow bundle
-reached production once — the hash was noticed and dismissed.
+- **Forces:** Improvement is continuous, not a phase. Each cycle removes waste the last one exposed,
+  and quality is never traded for short-term speed (the only way to go fast is to go well). What was
+  learned is fed back into the value definition, the stream map, and the standard work — the loop
+  closes, it does not just end.
 
 ---
 
-## 5 · Decision protocol
+## When to reach for the Commentary
 
-- Present options with real costs, a recommendation, and what would change the answer.
-- **Cost is never the whole answer** on a vendor or model choice — name the quality,
-  lock-in and operational dimensions too, and say which are unmeasured.
-- Decide with evidence where evidence is obtainable; where it is not, log the
-  assumption as an assumption.
-- **Log every notable decision in the tracker**, with the date and the reasoning.
-  Reasoning at the time is worth keeping — correct stale docs with a
-  superseded-assumptions banner rather than a silent rewrite.
-- A decision the human has reaffirmed after hearing the concern is **made**. Proceed
-  with the full request.
+Read the matching entry in `references/commentary.md` when:
 
----
+- You are starting a project/product and need to establish what "value" even is → **Principle 1**
+- You are setting objectives or reporting progress and need the right metric → **Principle 1 (KPIs)**
+- You are designing or auditing a workflow, pipeline, or process → **Principle 2**
+- You suspect a step is busywork but are not sure how to judge it → **Principle 2**
+- Work keeps stalling, blocking, or waiting on handoffs → **Principle 3**
+- You are about to write a reusable template, checklist, or gate → **Principle 3 (standard work)**
+- You are tempted to build something because it "will be needed later" → **Principle 4**
+- You are prioritizing a backlog or deciding what is next → **Principle 4**
+- You are closing out a cycle, retro, or release → **Principle 5**
+- Someone proposes trading quality for a deadline → **Principle 5**
 
-## 6 · Branch and merge discipline
+If none apply, Tier 1 is sufficient — do not load the Commentary.
 
-- Branch from a freshly fetched protected branch. **Always fetch first.**
-- Name after *what the change is*, never who wrote it.
-- One logical change per branch.
-- **Never stack new commits on already-merged history.** More work → fresh branch.
-  Squash merges defeat `git branch --contains`; use `git merge-tree` to determine
-  merged-ness by content.
-- Delete the branch, local and remote, after its PR merges.
-- Run the gates locally before opening a PR, and report the actual numbers.
+## Relationship to the rest of Axiom Black governance
 
----
+- **This skill (Build Governance)** — *what* to build, in what order, why. Product/project altitude.
+- **`axiomblack-de-codex` (the Codex)** — *how* the code is engineered. Line/system altitude.
+- **Working Plan / Phase Plan / PMPdM** — the operational trackers that *execute* against both.
 
-## 7 · Reporting rules (MUST)
+These three layers agree by construction: Establish Pull is why the Working Plan runs a
+pull-based Now/Next/Later backlog; Pursue Perfection is why the Codex refactors continuously;
+Define Value is why every phase has acceptance criteria tied to a KPI.
 
-- Report outcomes faithfully. If tests fail, say so with the output. If a step was
-  skipped, say that. When something is verified, state it plainly without hedging.
-- **Disclose your own process violations** in the same breath as the fix.
-- Never claim a capability, a figure or a limitation you have not verified. If the
-  environment blocks verification, say that instead of asserting.
-- Correct the record explicitly when you have been wrong, then move on.
+## Amending this standard
 
----
-
-## 8 · Maintenance
-
-This standard is revised **at every phase close**, not on a schedule. The closing
-stage adds a row to the revision log naming what the phase changed about the process
-and why. A governance document that does not change after a phase either had a
-perfect phase or was not consulted — assume the latter.
-
-See `references/anti-patterns.md` for the incident catalogue this standard is derived
-from, and `references/checklists.md` for the per-phase operating checklists.
+A living standard. When a build teaches a lesson worth encoding, or reality contradicts a forced
+decision, read `references/amendment.md` and follow its protocol. Amendments record their *why*,
+keep Tier 1 short, and are themselves subject to evidence. The version ledger there is the record
+of how this standard has evolved.
