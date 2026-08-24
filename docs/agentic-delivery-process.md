@@ -11,13 +11,11 @@ ought to have.
 > The **DE Codex** is *normative* — how code must look.
 > **This file is the procedure**: who does what, in what order, and what may not
 > proceed until what is true. It is deliberately written in MUST / MUST NOT.
-> The **axiomblack-build-governance** skill
-> (`.claude/skills/axiomblack-build-governance/`) carries the portable core of
-> this procedure so it auto-loads on every Axiom Black build. This file is this
-> repo's instance and wins on specifics: the phase history (§9), the ring IDs
-> (§3) and the revision log (§11) are project state and live only here. **When
-> a phase close changes a rule, change it in both** — the skill if the rule is
-> portable, this file always.
+> **Axiom Black Build Governance** (`.claude/skills/axiomblack-build-governance/`)
+> sits above all of these: its five Lean principles decide *what* is worth
+> building. This file decides *how the agent and the human get it delivered* —
+> Establish Pull says build only what is pulled; this says what "delivered"
+> must be true to claim.
 
 **Maintenance rule (non-negotiable).** This document is revised at the close of
 **every** phase, before the next phase opens. A phase is not closed until its
@@ -419,8 +417,8 @@ environment than the one that mattered.
 - [ ] Retrospective written, naming the *pattern* across misses
 - [ ] Breadcrumbs gained the portable method
 - [ ] **This document revised; §11 changelog appended**
-- [ ] Any *portable* rule change mirrored into the **axiomblack-build-governance**
-      skill (project-specific state stays here)
+- [ ] Pursue Perfection closed: what the phase taught fed back into the value
+      definition, the stream map and the standard work — not just recorded here
 - [ ] What is *not* proven stated plainly
 
 ---
