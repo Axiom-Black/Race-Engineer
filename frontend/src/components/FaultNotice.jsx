@@ -17,7 +17,14 @@ const TONE = {
   [FAULT.UNKNOWN]: C.danger,
 }
 
-export default function FaultNotice({ error, onRetry, style }) {
+/**
+ * `title` and `context` let a caller say what failed in ITS terms without
+ * losing what classifyFault worked out about WHY. A demo seed that fails needs
+ * to say "the demo is missing, your account is fine" — but the driver still
+ * benefits from "you appear to be offline" underneath it. Overriding the whole
+ * message would throw that away.
+ */
+export default function FaultNotice({ error, onRetry, style, title, context }) {
   if (!error) return null
   const f = classifyFault(error)
   const fg = TONE[f.code] ?? C.danger
@@ -35,9 +42,16 @@ export default function FaultNotice({ error, onRetry, style }) {
       }}
     >
       <div style={{ fontSize: 9, letterSpacing: 1.2, fontWeight: 700, color: fg, marginBottom: 5 }}>
-        ⚑ {f.title.toUpperCase()}
+        ⚑ {(title ?? f.title).toUpperCase()}
       </div>
-      <div style={{ fontSize: 12.5, lineHeight: 1.6, color: C.text }}>{f.message}</div>
+      {context && (
+        <div style={{ fontSize: 12.5, lineHeight: 1.6, color: C.text, marginBottom: 6 }}>
+          {context}
+        </div>
+      )}
+      <div style={{ fontSize: 12.5, lineHeight: 1.6, color: context ? C.dim : C.text }}>
+        {f.message}
+      </div>
       {f.retryable && onRetry && (
         <button
           type="button"

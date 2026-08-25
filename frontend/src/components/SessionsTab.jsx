@@ -24,6 +24,11 @@ export default function SessionsTab() {
   const [sessions, setSessions] = useState(null) // null = loading
   const [loadError, setLoadError] = useState(null) // the error object, not its message
   const [seedingDemo, setSeedingDemo] = useState(false)
+  // Kept separate from loadError on purpose. A failed demo seed is NOT a failed
+  // garage load: the driver's account is fine and empty, and telling them their
+  // sessions could not be loaded is both false and alarming. It also needs a
+  // different retry — refreshing the list cannot re-seed.
+  const [seedError, setSeedError] = useState(null)
   const seedAttempted = useRef(false)
 
   const refresh = useCallback(() => {
@@ -37,22 +42,34 @@ export default function SessionsTab() {
     refresh()
   }, [refresh])
 
-  // Idempotent by construction: only fires once per mount, and only when the
-  // first real load confirms zero sessions exist for this account.
+  // Seed the demo, and let it be retried. `force` is what the retry button
+  // passes: the ref guard exists to stop the effect looping, and without a way
+  // past it the retry could only re-list an empty garage forever.
+  const attemptSeed = useCallback(
+    (force = false) => {
+      if (seedAttempted.current && !force) return
+      seedAttempted.current = true
+      setSeedError(null)
+      setSeedingDemo(true)
+      seedDemoSession()
+        .then(refresh)
+        .catch(setSeedError)
+        .finally(() => setSeedingDemo(false))
+    },
+    [refresh],
+  )
+
+  // Only fires when the first real load confirms zero sessions exist for this
+  // account.
   //
   // The dismissal check is what stops the demo resurrecting: without it, a
   // driver who deletes the demo gets it seeded again on their next sign-in,
   // because "zero sessions" is exactly the state deleting it produces.
   useEffect(() => {
-    if (sessions === null || sessions.length > 0 || seedAttempted.current) return
+    if (sessions === null || sessions.length > 0) return
     if (isDemoDismissed(user?.id)) return
-    seedAttempted.current = true
-    setSeedingDemo(true)
-    seedDemoSession()
-      .then(refresh)
-      .catch(setLoadError)
-      .finally(() => setSeedingDemo(false))
-  }, [sessions, refresh, user])
+    attemptSeed()
+  }, [sessions, user, attemptSeed])
 
   // Deleting the demo is a dismissal, not just a delete — record it before the
   // refresh, or the seeding effect races back in and re-creates it.
@@ -87,6 +104,20 @@ export default function SessionsTab() {
 
       {sessions !== null && seedingDemo && (
         <p style={{ color: C.dim }}>Setting up a demo session so you have something to look at…</p>
+      )}
+
+      {/* A failed seed is reported as what it is — the demo is missing, the
+          account is fine — and its retry re-seeds rather than re-listing. The
+          empty state still renders below it, so the driver always has a working
+          way forward instead of a dead end. */}
+      {seedError && !seedingDemo && (
+        <FaultNotice
+          error={seedError}
+          onRetry={() => attemptSeed(true)}
+          title="Demo session unavailable"
+          context="We couldn't set up the demo session. Your garage is ready either way — upload a session, or try the demo again."
+          style={{ marginBottom: 14 }}
+        />
       )}
 
       {sessions !== null && !seedingDemo && view === 'list' && sessions.length === 0 && (
