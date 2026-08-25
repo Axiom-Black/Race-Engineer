@@ -90,3 +90,37 @@ export function loadTiers(userId) {
 export function saveTiers(userId, tiers) {
   return safeSet(keyFor(userId), JSON.stringify(sanitizeTiers(tiers)))
 }
+
+// ---------------------------------------------------------------------------
+// Demo dismissal
+//
+// The demo session seeds whenever an account is found holding zero sessions.
+// Once a driver can delete sessions, that rule resurrects the demo the next
+// time they sign in — they delete it, it comes back, and the app looks broken.
+//
+// This flag records that they have already dismissed it. It lives here rather
+// than in Postgres for the same reason the tiers do: it is a display
+// convenience, not driver telemetry, and a `user_preferences` table for one
+// boolean is not payable (WORKING_PLAN §4).
+//
+// The honest limitation: like the tiers, it does not follow a driver to
+// another browser or device, so the demo can reappear there. That is a mild
+// surprise rather than data loss — the demo is seeded from the public fixture,
+// not from anything of theirs — and the same swap that moves tiers to a real
+// preferences surface in Phase 2 moves this with them.
+
+const DEMO_NS = 'bytecraft.demoDismissed'
+
+function demoKeyFor(userId) {
+  return `${DEMO_NS}.${userId || 'anon'}`
+}
+
+/** Has this driver already deleted the seeded demo session? Never throws. */
+export function isDemoDismissed(userId) {
+  return safeGet(demoKeyFor(userId)) === '1'
+}
+
+/** Record that the demo was deleted, so it is not seeded again. */
+export function markDemoDismissed(userId) {
+  return safeSet(demoKeyFor(userId), '1')
+}

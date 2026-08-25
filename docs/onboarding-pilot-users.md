@@ -22,7 +22,19 @@ Do these **before** sending anyone the URL.
       `sessions.driver` and inside the raw `.ld` in Storage. RLS means no other
       driver can read it, so this is hygiene rather than an exposure — but
       production holding one person's PII while you invite others is a choice
-      worth making on purpose. (Decided 21 Aug; execution still pending.)
+      worth making on purpose. (Decided 21 Aug.)
+
+      **Do this in the app**: sign in, find the session in your garage, click
+      **Delete**, confirm. It removes the four Storage objects and then the row.
+      Added 25 Aug — before that there was no way to delete a session at all,
+      which is how this item sat open for four days.
+
+      Verify it is gone, because the app cannot show you another account's rows:
+      ```sql
+      select count(*) from public.sessions where is_demo = false;  -- expect 0
+      ```
+      If the count is not zero, the delete reported an error rather than
+      silently failing — re-run it and read the notice.
 - [ ] **Check the email rate limit.** Supabase's built-in email sender is
       rate-limited and is explicitly not intended for production traffic. Three
       signups in quick succession can trip it, and a driver whose confirmation
