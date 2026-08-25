@@ -164,7 +164,7 @@ reference implementation is `backend/`. Run commands from those directories.
 
 | What | Command | Gate |
 | --- | --- | --- |
-| Frontend tests (golden-master parity) | `cd frontend && npx vitest run` | Ring 4 |
+| Frontend tests (golden-master parity + components) | `cd frontend && npx vitest run` | Ring 4 |
 | Frontend lint | `cd frontend && npm run lint` | — |
 | Frontend build | `cd frontend && npm run build` | Ring 5 |
 | Frontend dev server | `cd frontend && npm run dev` | — |

@@ -209,6 +209,14 @@ Each entry: date · what shipped · the method insight worth carrying forward.
 
 ## Part C — Environment & toolchain notes (so the next session skips the pain)
 
+> **Superseded 25 Aug 2026 for assertions — still the tool for *looking*.**
+> Component tests are now real infrastructure (`@testing-library/react` +
+> jsdom, opt-in per file with `// @vitest-environment jsdom`), so anything you
+> would assert by reading `innerText` belongs in a `*.test.jsx` that CI runs.
+> Keep the harness below for what a suite cannot do: **seeing** the thing. The
+> slab-sparkline was invisible in text output and obvious in the screenshot.
+> Rule of thumb — assert in the suite, *look* in the harness.
+
 ### Render a component in isolation in ~2 minutes (throwaway harness)
 
 Unit tests cover logic; they say nothing about what the thing *looks* like. A
