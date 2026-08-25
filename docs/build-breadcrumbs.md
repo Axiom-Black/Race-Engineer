@@ -193,6 +193,28 @@ shape: the 185 pre-existing tests still passed and the run still reported
 `185 passed`, with the failure only in an "Unhandled Errors" block. **A green
 count next to a red exit code is still red.** *Codex I.1, VII.3.*
 
+### A15 · `Number()` fabricates measurements — and a component no test imports is not gated
+
+**Two lessons from one afternoon, both about checks that look present and are not.**
+
+**(a) Coercion invents data.** `Number(null)`, `Number('')`, `Number([])` and
+`Number(false)` are all a finite `0`. In a telemetry product that is not a
+quirk, it is a correctness bug with a shape: a channel whose minimum came back
+null renders `0.00 … 245.98`, showing a floor nobody recorded. This was caught
+**twice in one afternoon**, in two different functions, both times by a test
+and neither time by review. Fix the class, not the instance — `lib/num.js`
+exports `strictNum`, every numeric read goes through it, and a third
+occurrence now needs someone to deliberately avoid it. Note that numeric
+*strings* must still convert: Postgres sends numerics over the wire as text.
+
+**(b) A file nothing imports is invisible to the suite.** An unclosed JSX
+fragment left a 730-line component syntactically invalid and **the whole suite
+still passed** — no test imported it. Lint and the build caught it; the gate
+that was supposed to did not. Any component big enough to matter needs at least
+a smoke test that mounts it, because import-and-render alone would have failed.
+Verified the way everything else here is: reintroduce the bug, watch the suite
+go red, restore. *Codex I.1, IV.2.*
+
 ---
 
 ## Part B — Session trail (newest first)
