@@ -156,6 +156,58 @@ describe('the Instruments cluster', () => {
   })
 })
 
+describe('the Track Map', () => {
+  beforeEach(() => { getSessionTrace.mockResolvedValue(TRACE) })
+
+  it('renders the circuit', async () => {
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(await screen.findByLabelText('Track map')).toBeInTheDocument()
+  })
+
+  it('marks start/finish and the cursor', async () => {
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    const svg = await screen.findByLabelText('Track map')
+    // Start ring r=8, cursor ring r=12 and dot r=4.5.
+    expect(svg.querySelector('circle[r="8"]')).toBeTruthy()
+    expect(svg.querySelector('circle[r="12"]')).toBeTruthy()
+    expect(svg.querySelector('circle[r="4.5"]')).toBeTruthy()
+  })
+
+  it('draws an edge underlay beneath the speed-coloured trace', async () => {
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    const svg = await screen.findByLabelText('Track map')
+    const edge = svg.querySelector('polyline')
+    expect(edge).toBeTruthy()
+    // Wider than the coloured segments, and drawn first so it sits under them.
+    expect(Number(edge.getAttribute('stroke-width'))).toBeGreaterThan(4)
+    expect(svg.firstChild).toBe(edge)
+  })
+
+  it('falls back to a plain trace when every point shares a speed', async () => {
+    // A flat range would otherwise divide by zero and colour nothing.
+    getSessionTrace.mockResolvedValue({
+      aspect: 1,
+      laps: [{ lap: 2, pts: Array.from({ length: 6 }, (_, i) => PT(i, { s: 120, x: i / 5, y: (i % 2) / 2 })) }],
+    })
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(await screen.findByLabelText('Track map')).toBeInTheDocument()
+  })
+
+  it('says so when the lap logged no GPS', async () => {
+    getSessionTrace.mockResolvedValue({
+      aspect: 1,
+      laps: [{ lap: 2, pts: Array.from({ length: 6 }, (_, i) => PT(i, { x: null, y: null })) }],
+    })
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(await screen.findByText(/No GPS trace for this lap/)).toBeInTheDocument()
+  })
+})
+
 describe('the Summary hero', () => {
   it('shows circuit length, laps and full-throttle share', async () => {
     await renderReport()
