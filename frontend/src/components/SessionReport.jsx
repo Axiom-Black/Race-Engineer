@@ -18,8 +18,8 @@ import { reconcile, isFastestLap, displayLapTimeS } from '../lib/lapReconciliati
 import FaultNotice from './FaultNotice'
 import ChannelsTab from './ChannelsTab'
 import InstrumentCluster from './InstrumentCluster'
+import CircuitMap from './CircuitMap'
 import { advanceCursor } from '../lib/gauges'
-import { gpsPoints, project, nearestPointIndex, speedFraction, speedExtent } from '../lib/trackMap'
 import { buildComparison } from '../lib/sessionCompare'
 import { personalBest, thermalPeaks, tyreCompound, circuitHistory } from '../lib/sessionSummary'
 
@@ -252,85 +252,6 @@ function PlotLabel({ label, value, unit, color }) {
 }
 
 // ── GPS track map, colored by speed, with the cursor dot ──────────
-function speedColor(frac) {
-  // slow → blue, mid → warn, fast → pink
-  if (frac < 0.5) return lerpHex(C.blue, C.warn, frac / 0.5)
-  return lerpHex(C.warn, C.pink, (frac - 0.5) / 0.5)
-}
-function lerpHex(a, b, t) {
-  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16))
-  const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16))
-  const p = pa.map((v, i) => Math.round(v + (pb[i] - v) * t))
-  return `#${p.map((v) => v.toString(16).padStart(2, '0')).join('')}`
-}
-function TrackMap({ pts, aspect, cursor, onScrub }) {
-  const withGps = gpsPoints(pts)
-  if (withGps.length < 3) {
-    return <div style={{ color: C.dim, fontSize: 12, padding: 20 }}>No GPS trace for this lap.</div>
-  }
-  const geom = { width: 1000, height: Math.round(1000 * (aspect || 1)), pad: 40 }
-  const at = (p) => project(p, geom)
-  const extent = speedExtent(withGps)
-  const cur = pts[cursor]
-  const start = withGps[0]
-  const path = withGps.map((p) => { const q = at(p); return `${q.x.toFixed(1)},${q.y.toFixed(1)}` }).join(' ')
-
-  // Pointer -> nearest trace point. Without this the map is a picture; with it
-  // a driver can point at the corner they care about instead of hunting for it
-  // on the slider.
-  function handleMove(e) {
-    if (!onScrub) return
-    const box = e.currentTarget.getBoundingClientRect()
-    const x = ((e.clientX - box.left) / box.width) * geom.width
-    const y = ((e.clientY - box.top) / box.height) * geom.height
-    const i = nearestPointIndex(pts, x, y, geom)
-    if (i !== null) onScrub(i)
-  }
-
-  return (
-    <svg
-      viewBox={`0 0 ${geom.width} ${geom.height}`}
-      role="img"
-      aria-label="Track map"
-      onMouseMove={handleMove}
-      style={{
-        width: '100%', maxHeight: 460, background: C.bg, border: `1px solid ${C.line}`,
-        borderRadius: 12, cursor: onScrub ? 'crosshair' : 'default',
-      }}
-    >
-      {/* Edge underlay: the circuit reads as a road rather than a wire, and it
-          gives the speed colouring something to sit on where the trace doubles
-          back on itself. */}
-      <polyline points={path} fill="none" stroke={C.panel2} strokeWidth="11" strokeLinejoin="round" strokeLinecap="round" />
-
-      {withGps.slice(1).map((p, i) => {
-        const prev = withGps[i]
-        const a = at(prev)
-        const b = at(p)
-        const frac = extent ? speedFraction(p.s, extent.min, extent.max) : null
-        return (
-          <line
-            key={i}
-            x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-            stroke={frac === null ? C.silver2 : speedColor(frac)}
-            strokeWidth="4" strokeLinecap="round"
-          />
-        )
-      })}
-
-      {/* Start/finish, so the lap has an anchor and direction is readable. */}
-      <circle cx={at(start).x} cy={at(start).y} r="8" fill="none" stroke={C.silver2} strokeWidth="2" />
-
-      {cur && cur.x != null && (
-        <>
-          <circle cx={at(cur).x} cy={at(cur).y} r="12" fill="none" stroke={C.pink} strokeWidth="3" />
-          <circle cx={at(cur).x} cy={at(cur).y} r="4.5" fill={C.pink} />
-        </>
-      )}
-    </svg>
-  )
-}
-
 // ── main ──────────────────────────────────────────────────────────
 export default function SessionReport({ sessionId, sessions = [], onBack }) {
   const [state, setState] = useState({ loading: true, error: null, session: null, laps: [], trace: null })
@@ -989,14 +910,13 @@ function TrackMapTab({ pts, aspect, cursor, setCursor }) {
   return (
     <Card style={{ padding: '16px 18px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3 }}>TRACK MAP — coloured by speed · hover to scrub</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: C.dim }}>
-          <span>slow</span>
-          <span style={{ width: 90, height: 6, borderRadius: 3, background: `linear-gradient(90deg, ${C.blue}, ${C.warn}, ${C.pink})` }} />
-          <span>fast</span>
+        <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3 }}>TRACK MAP — corners detected from this lap · hover to scrub</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 10, color: C.dim }}>
+          <span>◔ min corner speed (km/h)</span>
+          <span>⚙ gear at apex</span>
         </div>
       </div>
-      <TrackMap pts={pts} aspect={aspect} cursor={cursor} onScrub={setCursor} />
+      <CircuitMap pts={pts} aspect={aspect} cursor={cursor} onScrub={setCursor} />
       <input
         type="range" min={0} max={pts.length - 1} value={cursor}
         onChange={(e) => setCursor(Number(e.target.value))}

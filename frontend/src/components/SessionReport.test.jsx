@@ -159,35 +159,73 @@ describe('the Instruments cluster', () => {
 describe('the Track Map', () => {
   beforeEach(() => { getSessionTrace.mockResolvedValue(TRACE) })
 
+  it('draws COTA landscape, not stretched into portrait', async () => {
+    // ingest persists `aspect` as lonSpan/latSpan — WIDTH over height. Every
+    // consumer had been computing height = width * aspect, so every track map
+    // ever rendered was stretched: COTA's true ratio is 0.581 and it was drawn
+    // at 1.72. The viewBox must be wider than it is tall.
+    getSessionTrace.mockResolvedValue({ ...TRACE, aspect: 1.7212 })
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    const svg = await screen.findByLabelText('Track map')
+    const [, , w, h] = svg.getAttribute('viewBox').split(' ').map(Number)
+    expect(w).toBeGreaterThan(h)
+    expect(h).toBe(Math.round(w / 1.7212))
+  })
+
+  it('falls back to a square rather than collapsing on a bad aspect', async () => {
+    getSessionTrace.mockResolvedValue({ ...TRACE, aspect: 0 })
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    const svg = await screen.findByLabelText('Track map')
+    const [, , w, h] = svg.getAttribute('viewBox').split(' ').map(Number)
+    expect(h).toBe(w)
+  })
+
   it('renders the circuit', async () => {
     await renderReport()
     await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
     expect(await screen.findByLabelText('Track map')).toBeInTheDocument()
   })
 
-  it('marks start/finish and the cursor', async () => {
+  it('marks start/finish with a chequered flag, and the cursor', async () => {
     await renderReport()
     await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
     const svg = await screen.findByLabelText('Track map')
-    // Start ring r=8, cursor ring r=12 and dot r=4.5.
-    expect(svg.querySelector('circle[r="8"]')).toBeTruthy()
+    expect(screen.getByText(/START/)).toBeInTheDocument()
+    // Cursor ring r=12 and dot r=4.5.
     expect(svg.querySelector('circle[r="12"]')).toBeTruthy()
     expect(svg.querySelector('circle[r="4.5"]')).toBeTruthy()
   })
 
-  it('draws an edge underlay beneath the speed-coloured trace', async () => {
+  it('labels corners with min speed and gear at apex', async () => {
+    // The whole point of the tab: a gradient says where the car was fast, a
+    // badge answers "what did I carry through there, and in what gear".
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(await screen.findByText(/min corner speed/)).toBeInTheDocument()
+    expect(screen.getByText(/gear at apex/)).toBeInTheDocument()
+  })
+
+  it('marks the fastest point of the lap', async () => {
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(await screen.findByText(/TOP SPEED/)).toBeInTheDocument()
+  })
+
+  it('draws the circuit as a road — edge under surface, not a gradient', async () => {
     await renderReport()
     await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
     const svg = await screen.findByLabelText('Track map')
     const edge = svg.querySelector('polyline')
     expect(edge).toBeTruthy()
-    // Wider than the coloured segments, and drawn first so it sits under them.
-    expect(Number(edge.getAttribute('stroke-width'))).toBeGreaterThan(4)
+    // Edge is wider than the surface and drawn first, so it sits under it.
+    expect(Number(edge.getAttribute('stroke-width'))).toBeGreaterThan(8)
     expect(svg.firstChild).toBe(edge)
   })
 
-  it('falls back to a plain trace when every point shares a speed', async () => {
-    // A flat range would otherwise divide by zero and colour nothing.
+  it('renders even when every point shares a speed', async () => {
+    // No corners are detectable from a flat lap; the map must still draw.
     getSessionTrace.mockResolvedValue({
       aspect: 1,
       laps: [{ lap: 2, pts: Array.from({ length: 6 }, (_, i) => PT(i, { s: 120, x: i / 5, y: (i % 2) / 2 })) }],
