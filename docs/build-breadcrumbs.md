@@ -120,6 +120,24 @@ source edit. **Two habits worth keeping:** treat *unchanged output from
 changed input* as a defect until proven otherwise, and prefer a build that
 refuses over a build that degrades quietly. *Codex I.1, VI.6.*
 
+### A12 · A skip-on-missing-config job is green either way — read the step, not the tick
+
+**When:** any workflow written to *skip* rather than fail when its
+configuration is absent (the right design — an unconfigured repo should not sit
+permanently red), and any check whose pass and no-op states are visually
+identical.
+
+**How:** verify by the **step that only runs when configured**, never by the
+run's conclusion. Gate that step on an explicit output
+(`if: steps.cfg.outputs.configured == 'true'`) so its presence in the job's step
+list *is* the evidence, and print a value the log can be read for. **Payoff:**
+the keepalive run reported success in 8 seconds; the summary page looks the same
+whether the secrets exist or were never added. What settled it was that the
+ping step had executed at all, plus `HTTP 200` in its log. **The habit:** when a
+green check answers a question it was not designed to answer, go find the
+signal that was. Ask what this run would look like if the thing had *not*
+worked — if the answer is "identical", the tick is not evidence. *Codex I.1.*
+
 ---
 
 ## Part B — Session trail (newest first)
