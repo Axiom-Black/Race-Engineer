@@ -156,6 +156,12 @@ is "done").
   the curated corner registry fixes it in Phase 3.
 - GPS channels are game-world coordinates dressed as lat/lon (nominally in
   the Pacific). Relative positions are exact; never overlay on real maps.
+- **`G Force Long` is POSITIVE under braking** — measured from the real export
+  25 Aug 2026: mean **+1.63 G** with `Brake Pos > 70%`, versus **−0.24 G** off
+  the brakes. So positive = deceleration, negative = acceleration, which is the
+  opposite of the sign most people assume. Any G-G plot, brake-trace overlay or
+  agent prompt reasoning about longitudinal load depends on this; re-measure
+  before flipping it.
 
 ## Commands
 
