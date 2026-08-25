@@ -59,6 +59,25 @@ Do these **before** sending anyone the URL.
 
 ---
 
+## How "inviting" actually works
+
+There is **no invite feature** — no invite codes, no admin "add user" flow.
+Signup is open, so an invitation is simply you sending someone the URL. That is
+the whole mechanism, and it is why the 21 Aug decision concluded no code was
+needed to onboard three drivers.
+
+Per driver: you message them → they sign up at the URL → Supabase emails a
+confirmation link (**this is what consumes the email rate limit**) → they click
+it and land in their own garage with the demo already seeded. RLS isolates them
+from each other with nothing for the owner to configure.
+
+**The consequence to hold consciously:** because signup is open, anyone holding
+the URL can create an account — not only the intended cohort. "Confirm email"
+being ON is what keeps that from mattering. Do not post the URL publicly during
+the pilot.
+
+---
+
 ## What to send each driver
 
 > **ByteCraft Racing — early access**
@@ -77,6 +96,9 @@ Do these **before** sending anyone the URL.
 > Everything is private to your account. Nobody else — including other drivers
 > — can see your sessions.
 >
+> If the confirmation email hasn't arrived in ten minutes, message me rather
+> than clicking resend — we're on a tight email quota during the pilot.
+>
 > It's an early pilot. Tell me anything that looks wrong, confusing, or slower
 > than you expected.
 
@@ -86,11 +108,15 @@ Do these **before** sending anyone the URL.
 
 - **Signup → confirmation email → their garage**, with a **DEMO SESSION**
   (COTA · GTE) already seeded.
-- **The demo session shows two orange/red flag banners.** These are
-  **intentional and correct**: the demo is built from a deliberately truncated
-  sanitized file, so its lap summary claims three laps its telemetry cannot
-  back, and the app says so rather than pretending. Warn drivers in advance —
-  otherwise the first thing they see looks like a bug.
+- **The demo session raises no flags.** *(Corrected 25 Aug 2026 — this section
+  previously told owners to warn drivers about two orange/red banners.)* That
+  was true only before P0: the old fixture was truncated, so its lap summary
+  claimed three laps its telemetry could not back and the app said so. P0
+  replaced it with the real multi-lap session — in `frontend/public/fixtures/`
+  as well as the repo's `fixtures/` — so the demo is now self-consistent.
+  **Nothing to warn drivers about here.** If a banner *does* appear on a
+  freshly seeded demo, that is a genuine regression worth reporting, not the
+  expected behaviour.
 - **Their own upload:** four tabs — Summary, Performance, Instruments, Track
   Map — rendering in well under 10 seconds. Parsing happens in their browser,
   so a slow machine shows up here first.
