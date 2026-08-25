@@ -17,6 +17,7 @@ const TABS = ['Summary', 'Performance', 'Instruments', 'Track Map', 'Channels']
 import { reconcile, isFastestLap, displayLapTimeS } from '../lib/lapReconciliation'
 import FaultNotice from './FaultNotice'
 import ChannelsTab from './ChannelsTab'
+import { buildComparison } from '../lib/sessionCompare'
 
 // ── formatting ────────────────────────────────────────────────────
 function fmtTime(s) {
@@ -287,7 +288,7 @@ function TrackMap({ pts, aspect, cursor }) {
 }
 
 // ── main ──────────────────────────────────────────────────────────
-export default function SessionReport({ sessionId, onBack }) {
+export default function SessionReport({ sessionId, sessions = [], onBack }) {
   const [state, setState] = useState({ loading: true, error: null, session: null, laps: [], trace: null })
   const [tab, setTab] = useState('Summary')
   const [lapNo, setLapNo] = useState(null)
@@ -428,7 +429,9 @@ export default function SessionReport({ sessionId, onBack }) {
       )}
       {tab === 'Channels' && <ChannelsTab channels={channels} />}
 
-      {tab === 'Performance' && <PerformanceTab metrics={metrics} pts={pts} lapValid={!!traceLap} />}
+      {tab === 'Performance' && (
+        <PerformanceTab metrics={metrics} pts={pts} lapValid={!!traceLap} session={session} sessions={sessions} />
+      )}
       {(tab === 'Instruments' || tab === 'Track Map') && !trace && (
         <div style={{ color: C.dim, fontSize: 13, padding: 20, border: `1px dashed ${C.line}`, borderRadius: 12 }}>
           Trace unavailable for this session (uploaded before trace capture, or still ingesting).
@@ -582,9 +585,95 @@ function ReconcileFlags({ session, laps }) {
 
 
 // ── Performance ───────────────────────────────────────────────────
-function PerformanceTab({ metrics, pts, lapValid }) {
+/**
+ * One metric's movement against a reference.
+ *
+ * The arrow always points the way the number MOVED; colour carries the
+ * verdict. A driver reading ▼ never has to work out whether down is good here,
+ * and a metric with no verdict (brake temp, RPM) simply is not coloured rather
+ * than being assigned an opinion the telemetry does not support.
+ */
+function DeltaChip({ d, dp, hasVerdict }) {
+  if (!d) return <span style={{ minWidth: 108 }} />
+  const same = d.direction === 'same'
+  const col = same || !hasVerdict ? C.dim : d.better ? C.good : C.danger
+  const arrow = same ? '=' : d.direction === 'up' ? '▲' : '▼'
+  return (
+    <span style={{ minWidth: 108, textAlign: 'right', fontFamily: font.mono, fontSize: 11, color: col }}>
+      {arrow} {same ? '0' : d.magnitude.toFixed(dp)}
+    </span>
+  )
+}
+
+/**
+ * Session peaks against the driver's own history at this venue and car.
+ *
+ * Drawn from sessions.summary.channels, which the garage list already holds —
+ * so this costs no extra query and no trace downloads. See lib/sessionCompare.
+ */
+function ComparisonPanel({ session, sessions }) {
+  const rows = buildComparison(session, sessions)
+  const anyHistory = rows.some((r) => r.history)
+
+  return (
+    <Card style={{ padding: '16px 18px', marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+        <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3 }}>
+          SESSION PEAKS · VS YOUR HISTORY
+        </div>
+        <div style={{ fontSize: 10.5, color: C.dim }}>
+          {session.venue} · {session.car}
+        </div>
+      </div>
+      <p style={{ fontSize: 11, color: C.dim, margin: '0 0 10px', lineHeight: 1.5 }}>
+        {anyHistory
+          ? 'Compared against your own previous sessions in the same car at this circuit.'
+          : 'No previous session in this car at this circuit yet — the comparison appears once you have one.'}
+      </p>
+      {rows.map((r) => (
+        <div
+          key={r.key}
+          style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: `1px solid ${C.line}` }}
+        >
+          <span style={{ fontSize: 12.5, color: C.silver2, flex: 1 }}>{r.label}</span>
+          <DeltaChip d={r.vsHistory} dp={r.dp} hasVerdict={r.higherBetter !== null} />
+          <span style={{ fontFamily: font.mono, fontSize: 15, fontWeight: 800, color: C.pink, minWidth: 104, textAlign: 'right' }}>
+            {r.value === null ? (
+              <span style={{ color: C.dim, fontWeight: 400, fontSize: 12 }}>not in this export</span>
+            ) : (
+              <>
+                {r.value.toFixed(r.dp)}
+                <span style={{ fontSize: 10, color: C.dim, fontWeight: 400 }}> {r.unit}</span>
+              </>
+            )}
+          </span>
+        </div>
+      ))}
+      {anyHistory && (
+        <div style={{ fontSize: 9.5, color: C.dim, marginTop: 8, fontStyle: 'italic' }}>
+          History averaged over{' '}
+          {Math.max(...rows.filter((r) => r.history).map((r) => r.history.n))} previous session(s).
+          Seeded demo sessions are excluded.
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function PerformanceTab({ metrics, pts, lapValid, session, sessions }) {
+  // The comparison needs no trace at all — it reads persisted channel peaks —
+  // so it must still render when the trace is missing. Previously this early
+  // return blanked the whole tab.
+  const comparison = session ? <ComparisonPanel session={session} sessions={sessions} /> : null
   if (!lapValid || !metrics) {
-    return <div style={{ color: C.dim, fontSize: 13, padding: 20 }}>No trace for this lap — performance metrics need the trace blob.</div>
+    return (
+      <>
+        {comparison}
+        <div style={{ color: C.dim, fontSize: 13, padding: 20 }}>
+          No trace for this lap — per-lap metrics need the trace blob.
+        </div>
+      </>
+    )
   }
   // time-share in speed bands, computed from the lap's own points
   const bands = [
@@ -595,6 +684,8 @@ function PerformanceTab({ metrics, pts, lapValid }) {
   const total = pts.length || 1
   const bandPct = bands.map((b) => ({ ...b, pct: (pts.filter((p) => b.test(p.s ?? 0)).length / total) * 100 }))
   return (
+    <>
+    {comparison}
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
       <Card style={{ padding: '16px 18px' }}>
         <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3, marginBottom: 12 }}>CAR PERFORMANCE — THIS LAP</div>
@@ -629,6 +720,7 @@ function PerformanceTab({ metrics, pts, lapValid }) {
         </div>
       </Card>
     </div>
+    </>
   )
 }
 

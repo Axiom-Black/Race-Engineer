@@ -167,7 +167,11 @@ export default function SessionsTab() {
 
       {view === 'detail' && selectedId && (
         // Back goes to the overview it came from, not all the way to the list.
-        <SessionReport sessionId={selectedId} onBack={() => setView(overview ? 'overview' : 'list')} />
+        <SessionReport
+          sessionId={selectedId}
+          sessions={sessions ?? []}
+          onBack={() => setView(overview ? 'overview' : 'list')}
+        />
       )}
     </>
   )

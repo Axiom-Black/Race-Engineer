@@ -18,6 +18,7 @@
 // carries its own status, and the UI is responsible for showing that status
 // rather than the number alone.
 import { reconcile, displayLapTimeS } from './lapReconciliation.js'
+import { strictNum } from './num.js'
 
 /** Channel inventory lookup by exact name. Returns null when absent. */
 export function channel(channels, name) {
@@ -45,8 +46,8 @@ export function statFrom(channels, name, pick) {
   if (ch.allZero) return { status: STAT.EMPTY, value: null, unit: ch.unit, name }
   if (ch.reliable === false) return { status: STAT.UNRELIABLE, value: null, unit: ch.unit, name }
 
-  const min = Number(ch.min)
-  const max = Number(ch.max)
+  const min = strictNum(ch.min)
+  const max = strictNum(ch.max)
   if (!Number.isFinite(min) || !Number.isFinite(max)) {
     return { status: STAT.ABSENT, value: null, unit: ch.unit, name }
   }
@@ -56,7 +57,7 @@ export function statFrom(channels, name, pick) {
 
 /** mm:ss.mmm, or null when there is no time to show. */
 export function fmtLapTime(s) {
-  const n = Number(s)
+  const n = strictNum(s)
   if (!Number.isFinite(n) || n <= 0) return null
   const m = Math.floor(n / 60)
   return `${m}:${(n % 60).toFixed(3).padStart(6, '0')}`

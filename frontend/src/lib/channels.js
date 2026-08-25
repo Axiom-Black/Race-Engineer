@@ -6,20 +6,10 @@
 // one channel meant scrolling past everything else. It is now its own tab
 // (Channels), which is what makes searching worth having.
 //
+import { strictNum } from './num.js'
+
 // Logic lives here rather than in the component so that "does the filter
 // actually find Brake Temp RL" is answerable without a DOM.
-
-/**
- * Number(), minus the coercions that fabricate a measurement.
- *
- * `Number(null)` is 0 and `Number('')` is 0 — both finite, both wrong here. A
- * channel whose min came back null would otherwise render "0.00 … 245.98",
- * showing a floor that was never recorded. Caught by a test, not by review.
- */
-function strictNum(v) {
-  if (v === null || v === undefined || v === '') return NaN
-  return Number(v)
-}
 
 /** Every domain present, 'All' first, the rest alphabetical. */
 export function domainsOf(channels) {
