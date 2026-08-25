@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { C, font } from '../theme'
 import { Button } from './ui'
-import { listSessions, deleteSession } from '../lib/sessions'
+import { listSessions, deleteSession, getSession } from '../lib/sessions'
 import { seedDemoSession } from '../lib/demo'
 import { isDemoDismissed, markDemoDismissed } from '../lib/prefs'
 import { useAuth } from '../lib/auth'
@@ -16,10 +16,14 @@ import FaultNotice from './FaultNotice'
 import UploadDropzone from './UploadDropzone'
 import SessionList from './SessionList'
 import SessionReport from './SessionReport'
+import SessionOverview from './SessionOverview'
 
 export default function SessionsTab() {
   const { user } = useAuth()
-  const [view, setView] = useState('list') // 'list' | 'upload' | 'detail'
+  // 'overview' sits between the list and the four-tab report: opening a
+  // session now answers "how did it go?" before offering the detail.
+  const [view, setView] = useState('list') // 'list' | 'upload' | 'overview' | 'detail'
+  const [overview, setOverview] = useState(null) // { session, laps } | null = loading
   const [selectedId, setSelectedId] = useState(null)
   const [sessions, setSessions] = useState(null) // null = loading
   const [loadError, setLoadError] = useState(null) // the error object, not its message
@@ -90,10 +94,23 @@ export default function SessionsTab() {
     }
   }
 
+  const openOverview = useCallback((id) => {
+    setSelectedId(id)
+    setOverview(null)
+    setView('overview')
+    getSession(id)
+      .then(setOverview)
+      .catch((err) => {
+        // Fall through to the report rather than stranding the driver on a
+        // spinner: the report fetches independently and may well succeed.
+        setLoadError(err)
+        setView('detail')
+      })
+  }, [])
+
   function handleUploaded(sessionId) {
     refresh()
-    setSelectedId(sessionId)
-    setView('detail')
+    openOverview(sessionId)
   }
 
   return (
@@ -127,10 +144,7 @@ export default function SessionsTab() {
       {sessions !== null && view === 'list' && sessions.length > 0 && (
         <SessionList
           sessions={sessions}
-          onSelect={(id) => {
-            setSelectedId(id)
-            setView('detail')
-          }}
+          onSelect={openOverview}
           onUploadClick={() => setView('upload')}
           onDelete={handleDelete}
         />
@@ -140,8 +154,20 @@ export default function SessionsTab() {
         <UploadDropzone onUploaded={handleUploaded} onCancel={() => setView('list')} />
       )}
 
+      {view === 'overview' && !overview && <p style={{ color: C.dim }}>Opening session…</p>}
+
+      {view === 'overview' && overview && (
+        <SessionOverview
+          session={overview.session}
+          laps={overview.laps}
+          onOpenReport={() => setView('detail')}
+          onBack={() => setView('list')}
+        />
+      )}
+
       {view === 'detail' && selectedId && (
-        <SessionReport sessionId={selectedId} onBack={() => setView('list')} />
+        // Back goes to the overview it came from, not all the way to the list.
+        <SessionReport sessionId={selectedId} onBack={() => setView(overview ? 'overview' : 'list')} />
       )}
     </>
   )
