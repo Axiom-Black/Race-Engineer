@@ -3,6 +3,17 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "//engines": [
+    "Declared because jsdom 30 requires ^22.22.2 || ^24.15.0 || >=26.0.0 and CI",
+    "was pinned to Node 20. The component suite passed locally on 22.22.2 and",
+    "could NEVER pass on the runner — undici, loaded by jsdom, dies with",
+    "'webidl.util.markAsUncloneable is not a function'. Paired with",
+    ".npmrc engine-strict=true so a wrong Node FAILS the install loudly instead",
+    "of producing a confusing worker crash three steps later."
+  ],
+  "engines": {
+    "node": ">=22.22.2"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
