@@ -156,6 +156,13 @@ is "done").
   the curated corner registry fixes it in Phase 3.
 - GPS channels are game-world coordinates dressed as lat/lon (nominally in
   the Pacific). Relative positions are exact; never overlay on real maps.
+- **`trace.aspect` is `lonSpan / latSpan` — WIDTH over height**, not the other
+  way round. Every consumer had been computing `height = width × aspect`, so
+  every track map rendered between S5 and 25 Aug 2026 was stretched into
+  portrait: COTA's true ratio is **0.581** (landscape) and it was drawn at
+  **1.72**. Divide, don't multiply. Fixed in the consumer rather than in ingest
+  so sessions already in Storage render correctly without a re-upload — which
+  means the persisted meaning stays width/height and must not be "corrected".
 - **`G Force Long` is POSITIVE under braking** — measured from the real export
   25 Aug 2026: mean **+1.63 G** with `Brake Pos > 70%`, versus **−0.24 G** off
   the brakes. So positive = deceleration, negative = acceleration, which is the
