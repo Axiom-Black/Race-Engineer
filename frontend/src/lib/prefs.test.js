@@ -2,7 +2,13 @@
 // the render path, so the tests lean on the failure cases rather than the
 // happy path.
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { loadTiers, saveTiers, sanitizeTiers } from './prefs.js'
+import {
+  loadTiers,
+  saveTiers,
+  sanitizeTiers,
+  isDemoDismissed,
+  markDemoDismissed,
+} from './prefs.js'
 import { DEFAULT_TIERS } from './progression.js'
 
 function memoryStorage() {
@@ -83,5 +89,53 @@ describe('tier preferences', () => {
     a.elite = 99
     expect(loadTiers('user-1').elite).toBe(DEFAULT_TIERS.elite)
     expect(DEFAULT_TIERS.elite).toBe(0.5)
+  })
+})
+
+// The bug this guards: the demo seeds whenever an account holds zero sessions,
+// and deleting the demo produces exactly that state — so without a dismissal
+// record the demo comes back on the next sign-in and the app looks broken.
+describe('demo dismissal', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', memoryStorage())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reports not-dismissed for a driver who has never deleted it', () => {
+    expect(isDemoDismissed('user-1')).toBe(false)
+  })
+
+  it('remembers the dismissal', () => {
+    expect(markDemoDismissed('user-1')).toBe(true)
+    expect(isDemoDismissed('user-1')).toBe(true)
+  })
+
+  it('is namespaced per driver — one dismissal does not suppress another', () => {
+    markDemoDismissed('user-1')
+    expect(isDemoDismissed('user-2')).toBe(false)
+  })
+
+  it('does not collide with the tier key for the same driver', () => {
+    markDemoDismissed('user-1')
+    expect(loadTiers('user-1')).toEqual(DEFAULT_TIERS)
+    saveTiers('user-1', { elite: 0.25, competitive: 1, developing: 2 })
+    expect(isDemoDismissed('user-1')).toBe(true)
+  })
+
+  it('treats unavailable storage as not-dismissed rather than throwing', () => {
+    // Private browsing: the demo reappearing is a mild surprise; a thrown
+    // error in the seeding effect would take out the whole Sessions tab.
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('SecurityError')
+      },
+      setItem: () => {
+        throw new Error('QuotaExceededError')
+      },
+    })
+    expect(isDemoDismissed('user-1')).toBe(false)
+    expect(markDemoDismissed('user-1')).toBe(false)
   })
 })

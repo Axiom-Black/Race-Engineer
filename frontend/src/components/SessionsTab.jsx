@@ -8,14 +8,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { C, font } from '../theme'
 import { Button } from './ui'
-import { listSessions } from '../lib/sessions'
+import { listSessions, deleteSession } from '../lib/sessions'
 import { seedDemoSession } from '../lib/demo'
+import { isDemoDismissed, markDemoDismissed } from '../lib/prefs'
+import { useAuth } from '../lib/auth'
 import FaultNotice from './FaultNotice'
 import UploadDropzone from './UploadDropzone'
 import SessionList from './SessionList'
 import SessionReport from './SessionReport'
 
 export default function SessionsTab() {
+  const { user } = useAuth()
   const [view, setView] = useState('list') // 'list' | 'upload' | 'detail'
   const [selectedId, setSelectedId] = useState(null)
   const [sessions, setSessions] = useState(null) // null = loading
@@ -36,15 +39,39 @@ export default function SessionsTab() {
 
   // Idempotent by construction: only fires once per mount, and only when the
   // first real load confirms zero sessions exist for this account.
+  //
+  // The dismissal check is what stops the demo resurrecting: without it, a
+  // driver who deletes the demo gets it seeded again on their next sign-in,
+  // because "zero sessions" is exactly the state deleting it produces.
   useEffect(() => {
     if (sessions === null || sessions.length > 0 || seedAttempted.current) return
+    if (isDemoDismissed(user?.id)) return
     seedAttempted.current = true
     setSeedingDemo(true)
     seedDemoSession()
       .then(refresh)
       .catch(setLoadError)
       .finally(() => setSeedingDemo(false))
-  }, [sessions, refresh])
+  }, [sessions, refresh, user])
+
+  // Deleting the demo is a dismissal, not just a delete — record it before the
+  // refresh, or the seeding effect races back in and re-creates it.
+  async function handleDelete(session) {
+    setLoadError(null)
+    try {
+      await deleteSession(session.id)
+      if (session.is_demo) {
+        seedAttempted.current = true
+        markDemoDismissed(user?.id)
+      }
+      refresh()
+    } catch (err) {
+      // Storage or row delete failed. The session still exists — say so via the
+      // same classified notice everything else uses, rather than a silent no-op
+      // that looks like the delete worked.
+      setLoadError(err)
+    }
+  }
 
   function handleUploaded(sessionId) {
     refresh()
@@ -74,6 +101,7 @@ export default function SessionsTab() {
             setView('detail')
           }}
           onUploadClick={() => setView('upload')}
+          onDelete={handleDelete}
         />
       )}
 

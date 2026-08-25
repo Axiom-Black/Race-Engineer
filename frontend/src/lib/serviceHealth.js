@@ -82,8 +82,8 @@ export function classifyFault(err) {
       title: 'Storage is full',
       message:
         'This session could not be saved because the telemetry store has hit its limit. ' +
-        'Existing sessions are unaffected. Delete an old session to free space, or contact ' +
-        'ByteCraft if you need more room.',
+        'Existing sessions are unaffected. Delete an old session from your garage to free ' +
+        'space, or contact ByteCraft if you need more room.',
       retryable: false,
     }
   }

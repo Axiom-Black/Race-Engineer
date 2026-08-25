@@ -170,6 +170,43 @@ export async function getSession(sessionId) {
   return { session, laps }
 }
 
+/**
+ * Permanently delete one session: its Storage objects, then its row (laps
+ * cascade via the FK). RLS scopes both — a driver can only ever reach their
+ * own, and no app-side WHERE clause is doing that work.
+ *
+ * ORDER IS DELIBERATE, and it is storage-then-row for a specific reason: the
+ * row is the only record of where the objects live. Delete the row first and a
+ * storage failure leaves files nobody can find or bill for — invisible garbage.
+ * This way a storage failure aborts before the row is touched, so the session
+ * is still listed, still deletable, and the driver can retry. The failure mode
+ * that survives is the benign one: a row whose files are already gone, which is
+ * visible and fixable, rather than files whose row is gone, which is not.
+ *
+ * Paths are read from the row rather than reconstructed from a naming
+ * convention. Reconstruction would silently miss objects the day the layout
+ * changes, and orphaned telemetry is exactly what this function exists to
+ * prevent.
+ */
+export async function deleteSession(sessionId) {
+  const { data: row, error: readErr } = await supabase
+    .from('sessions')
+    .select('ld_path, ldx_path, svm_path, trace_path')
+    .eq('id', sessionId)
+    .single()
+  if (readErr) throw readErr
+
+  const paths = [row.ld_path, row.ldx_path, row.svm_path, row.trace_path].filter(Boolean)
+  if (paths.length) {
+    const { error: rmErr } = await supabase.storage.from(BUCKET).remove(paths)
+    // Abort rather than orphan. The caller surfaces this and the row survives.
+    if (rmErr) throw rmErr
+  }
+
+  const { error: delErr } = await supabase.from('sessions').delete().eq('id', sessionId)
+  if (delErr) throw delErr
+}
+
 /** Fetch and parse the trace.json blob for a session (Track Map / replay — Step 4). */
 export async function getSessionTrace(session) {
   if (!session.trace_path) return null
