@@ -30,6 +30,7 @@ const chans = (over = {}) => [
 
 const SESSION = {
   id: 'cur', venue: 'COTA', car: 'Ferrari 488 GTE', car_class: 'GTE', ruleset: 'WEC2023',
+  session_type: 'practice', recorded_at: '2026-06-30T19:32:27Z',
   is_demo: false, lap_count: 3, fastest_lap_no: 2, fastest_lap_s: 135.475, length_km: 5.42,
   summary: { channels: chans() },
 }
@@ -74,6 +75,69 @@ describe('the Channels tab', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Channels' }))
     expect(screen.getByText(/Channel inventory · 3/)).toBeInTheDocument()
     expect(screen.getByLabelText('Find a channel')).toBeInTheDocument()
+  })
+})
+
+describe('the Summary hero', () => {
+  it('shows circuit length, laps and full-throttle share', async () => {
+    await renderReport()
+    expect(screen.getByText('Circuit length')).toBeInTheDocument()
+    expect(screen.getByText('5.42')).toBeInTheDocument()
+    expect(screen.getByText('Laps this run')).toBeInTheDocument()
+  })
+
+  it('marks the personal best as set THIS run when it is', async () => {
+    await renderReport()
+    expect(screen.getByText('Personal best (this run)')).toBeInTheDocument()
+    // The time also appears in the lap table, so assert presence not uniqueness.
+    expect(screen.getAllByText('2:15.475').length).toBeGreaterThan(0)
+  })
+
+  it('credits an older, faster session instead of claiming this one', async () => {
+    const faster = { ...SESSION, id: 'old', fastest_lap_s: 133.1, recorded_at: '2026-06-01T00:00:00Z' }
+    await renderReport([SESSION, faster])
+    expect(screen.getByText('Personal best')).toBeInTheDocument()
+    expect(screen.getAllByText('2:13.100').length).toBeGreaterThan(0)
+  })
+
+  it('reports the compound from the setup', async () => {
+    getSession.mockResolvedValue({
+      session: { ...SESSION, setup: { ldx: { FLCompound: 'Soft', FRCompound: 'Soft', RLCompound: 'Soft', RRCompound: 'Soft' } } },
+      laps: LAPS,
+    })
+    await renderReport()
+    expect(screen.getByText(/Soft — all four corners/)).toBeInTheDocument()
+  })
+
+  it('says so when the setup carries no compound, rather than guessing', async () => {
+    await renderReport()
+    expect(screen.getByText('Not in this setup export')).toBeInTheDocument()
+  })
+
+  it('shows a dash for a thermal reading the export lacks', async () => {
+    await renderReport()
+    // No brake/water/oil channels in the fixture used here.
+    expect(screen.getByText(/brake/)).toBeInTheDocument()
+  })
+
+  it('does not print a unit on an absent value', async () => {
+    // "— %" reads as a rendering fault rather than as missing data. There is
+    // no trace here, so full-throttle share has nothing to report.
+    await renderReport()
+    expect(screen.getByText('Full throttle')).toBeInTheDocument()
+    expect(screen.queryByText('%')).not.toBeInTheDocument()
+  })
+
+  it('explains an empty circuit history instead of showing a bare panel', async () => {
+    await renderReport()
+    expect(screen.getByText(/first session here in this car/)).toBeInTheDocument()
+  })
+
+  it('lists prior sessions at the circuit, oldest first', async () => {
+    const older = { ...SESSION, id: 'old', fastest_lap_s: 138, recorded_at: '2026-06-01T00:00:00Z' }
+    await renderReport([SESSION, older])
+    expect(screen.getAllByText('2:18.000').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/practice/).length).toBeGreaterThan(0)
   })
 })
 

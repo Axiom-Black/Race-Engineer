@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { C, font } from '../theme'
 import { getSession, getSessionTrace } from '../lib/sessions'
 import { deltaTrace, fmtDelta } from '../lib/delta'
-import { formatSessionDateTime } from '../lib/sessionTime'
+import { formatSessionDateTime, formatSessionDate } from '../lib/sessionTime'
 
 const TABS = ['Summary', 'Performance', 'Instruments', 'Track Map', 'Channels']
 
@@ -18,6 +18,7 @@ import { reconcile, isFastestLap, displayLapTimeS } from '../lib/lapReconciliati
 import FaultNotice from './FaultNotice'
 import ChannelsTab from './ChannelsTab'
 import { buildComparison } from '../lib/sessionCompare'
+import { personalBest, thermalPeaks, tyreCompound, circuitHistory } from '../lib/sessionSummary'
 
 // ── formatting ────────────────────────────────────────────────────
 function fmtTime(s) {
@@ -59,12 +60,15 @@ function Card({ children, style }) {
   )
 }
 function StatCell({ label, value, unit, color = C.silver3 }) {
+  // A unit on an absent value ("— %") is a measurement label with nothing
+  // behind it, and reads as a rendering fault rather than as missing data.
+  const missing = value === '—' || value === null || value === undefined
   return (
     <div style={{ background: C.panel, padding: '13px 16px' }}>
       <div style={{ fontSize: 9, color: C.dim, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ fontSize: 19, fontWeight: 800, color, fontFamily: font.mono }}>
-        {value}
-        {unit ? <span style={{ fontSize: 10, color: C.dim, fontWeight: 400 }}> {unit}</span> : null}
+      <div style={{ fontSize: 19, fontWeight: 800, color: missing ? C.dim : color, fontFamily: font.mono }}>
+        {missing ? '—' : value}
+        {unit && !missing ? <span style={{ fontSize: 10, color: C.dim, fontWeight: 400 }}> {unit}</span> : null}
       </div>
     </div>
   )
@@ -425,7 +429,7 @@ export default function SessionReport({ sessionId, sessions = [], onBack }) {
       </div>
 
       {tab === 'Summary' && (
-        <SummaryTab session={session} laps={laps} channels={channels} flagged={flagged} metrics={metrics} traceLap={traceLap} />
+        <SummaryTab session={session} laps={laps} channels={channels} flagged={flagged} metrics={metrics} traceLap={traceLap} sessions={sessions} />
       )}
       {tab === 'Channels' && <ChannelsTab channels={channels} />}
 
@@ -455,7 +459,11 @@ export default function SessionReport({ sessionId, sessions = [], onBack }) {
 }
 
 // ── Summary ───────────────────────────────────────────────────────
-function SummaryTab({ session, laps, channels, flagged, metrics, traceLap }) {
+function SummaryTab({ session, laps, channels, flagged, metrics, traceLap, sessions = [] }) {
+  const pb = personalBest(sessions, session)
+  const thermal = thermalPeaks(channels)
+  const compound = tyreCompound(session.setup)
+  const history = circuitHistory(sessions, session)
   const silhouette = traceLap?.pts?.filter((p) => p.x != null) ?? []
   const sw = 200
   const sh = Math.round(200 * (session.summary && silhouette.length ? 0.6 : 0.6))
@@ -477,10 +485,85 @@ function SummaryTab({ session, laps, channels, flagged, metrics, traceLap }) {
           )}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, background: C.line }}>
-          <StatCell label="Fastest lap" value={fmtTime(session.fastest_lap_s)} color={C.pink} />
-          <StatCell label="Laps" value={session.lap_count ?? laps.length} />
-          <StatCell label="Length" value={session.length_km ? session.length_km.toFixed(2) : '—'} unit="km" />
+          <StatCell label="Circuit length" value={session.length_km ? session.length_km.toFixed(2) : '—'} unit="km" />
+          <StatCell label="Laps this run" value={session.lap_count ?? laps.length} />
+          <StatCell
+            label={pb?.isCurrent ? 'Personal best (this run)' : 'Personal best'}
+            value={pb ? fmtTime(pb.timeS) : '—'}
+            color={C.pink}
+          />
           <StatCell label="Full throttle" value={metrics ? n1(metrics.fullThrottlePct) : '—'} unit="%" color={C.warn} />
+        </div>
+
+        {/* Compound + thermals on the left, the circuit's history on the right —
+            the prototype's lower band, over real persisted data. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1fr) minmax(240px, 1.4fr)', gap: 1, background: C.line }}>
+          <div style={{ background: C.panel, padding: '13px 16px' }}>
+            <div style={{ fontSize: 8, color: C.dim, letterSpacing: 1.5, marginBottom: 7 }}>TYRE COMPOUND</div>
+            {compound ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 22, height: 22, borderRadius: '50%', border: `2px solid ${C.pink}`,
+                               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                               fontSize: 10, fontWeight: 800, color: C.pink }}>
+                  {compound.compound.slice(0, 1).toUpperCase()}
+                </span>
+                <span style={{ fontSize: 12, color: C.silver2 }}>
+                  {compound.compound}
+                  {compound.uniform ? ' — all four corners' : ' — corners differ'}
+                </span>
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: C.dim }}>Not in this setup export</div>
+            )}
+
+            <div style={{ fontSize: 8, color: C.dim, letterSpacing: 1.5, margin: '12px 0 6px' }}>THERMAL PEAK</div>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              {thermal.map((t) => (
+                <span key={t.key} style={{ fontSize: 11, color: C.silver2, fontFamily: font.mono }}>
+                  {t.label}{' '}
+                  {t.value === null ? (
+                    <b style={{ color: C.dim, fontWeight: 400 }}>—</b>
+                  ) : (
+                    <b style={{ color: t.key === 'brake' ? C.warn : C.good }}>{Math.round(t.value)}°</b>
+                  )}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: C.panel, padding: '13px 16px' }}>
+            <div style={{ fontSize: 8, color: C.dim, letterSpacing: 1.5, marginBottom: 8 }}>
+              SESSION HISTORY · THIS CIRCUIT
+            </div>
+            {history.length <= 1 ? (
+              <div style={{ fontSize: 11.5, color: C.dim, lineHeight: 1.5 }}>
+                This is your first session here in this car. The history builds as you upload more.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {history.map((h) => (
+                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                                   background: h.isCurrent ? C.pinkBg : C.panel2,
+                                   border: `1px solid ${h.isCurrent ? C.pinkBd : C.line}`,
+                                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                   fontSize: 10, fontWeight: 800, color: h.isCurrent ? C.pink : C.silver2 }}>
+                      {(h.sessionType ?? '?').slice(0, 1).toUpperCase()}
+                    </span>
+                    <span style={{ fontSize: 11, color: h.isCurrent ? C.silver3 : C.silver2, minWidth: 78 }}>
+                      {h.sessionType ?? 'session'}{h.isCurrent ? ' (this)' : ''}
+                    </span>
+                    <span style={{ fontSize: 11, fontFamily: font.mono, color: h.isCurrent ? C.pink : C.silver2 }}>
+                      {h.timeS ? fmtTime(h.timeS) : '—'}
+                    </span>
+                    <span style={{ fontSize: 9, color: C.dim, marginLeft: 'auto' }}>
+                      {formatSessionDate(h.recordedAt) || ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </Card>
 
