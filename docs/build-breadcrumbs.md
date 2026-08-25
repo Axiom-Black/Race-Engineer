@@ -138,6 +138,40 @@ green check answers a question it was not designed to answer, go find the
 signal that was. Ask what this run would look like if the thing had *not*
 worked — if the answer is "identical", the tick is not evidence. *Codex I.1.*
 
+### A13 · Prove tenant isolation *outside* the app, in one row
+
+**When:** any product whose isolation story is "RLS handles it". A CI suite
+asserting policies on a scratch database proves the *policy*; it does not prove
+the deployed project is enforcing it, and the app showing each user the right
+rows would look identical if the client were doing the filtering.
+
+**How:** run the check in SQL against production, impersonating a real account,
+never through the app. Stash the privileged total in a GUC **before** dropping
+role, so a single row carries both numbers and the editor's show-only-the-last-
+result behaviour cannot hide half the answer:
+
+```sql
+begin;
+  select set_config('probe.total',
+    (select count(*)::text from public.<table>), true);
+  select set_config('request.jwt.claims',
+    json_build_object('sub', (select id::text from auth.users
+                              where email = '<real user>'))::text, true);
+  set local role authenticated;
+  select current_setting('probe.total')::int as total_all,
+         count(*)                            as visible_to_user
+  from public.<table>;
+rollback;
+```
+
+**Payoff:** `total_all = 4, visible_to_user = 1` is proof; `visible_to_user`
+alone is not, because it is identical whether the total is 4 or 1. **Three
+traps worth naming:** set the JWT claim *before* `set role`, since
+`authenticated` cannot read `auth.users`; compare like for like (if the
+impersonated count includes seeded/demo rows, the total must too); and
+`begin`/`rollback` makes the whole probe read-only, so it is safe against
+production. *Codex I.1, V.2.*
+
 ---
 
 ## Part B — Session trail (newest first)
