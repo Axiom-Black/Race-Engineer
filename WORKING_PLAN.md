@@ -13,12 +13,12 @@
 | --- | --- |
 | **Product** | ByteCraft Racing — Race Engineering Manager (Axiom Black, LLC) |
 | **Flagship deliverable** | Race Engineering Agent (multi-agent: Orchestrator → specialists → Optimizer → Synthesizer) — dark until Phase 2 |
-| **Current phase** | **Phase 2 — Intelligence** *(opening 21 Aug 2026)*. Scope held to **P1–P3** by decision: correct the plan docs, get an authenticated metered gateway live, then run the agent server-side. **P4–P7 (model tiering, quotas, Stripe, garages) are on hold** until P1–P3 are live and verified. Phase 1 remains live and unaffected. |
-| **Current iteration** | Iteration 3 — "Agent spine" (P1–P3). Iteration 2 ("Pilot spine", S1–S8) closed 21 Aug 2026. |
+| **Current phase** | **Phase 1 — Launch, extended into use.** Phase 2 opened 21 Aug and was **re-parked 24 Aug**: P2/P3 build an agent no user has asked for, because there are no users (Establish Pull). P1 (plan-doc correction) stays done; **P2–P7 are all on hold** until the first cohort produces a pull signal. |
+| **Current iteration** | Iteration 4 — "First cohort": onboard three real drivers and read the answer. Iteration 3 ("Agent spine") suspended after P0/P1. Iteration 2 ("Pilot spine", S1–S8) closed 21 Aug 2026. |
 | **Live URL** | https://bytecraft-racing.vercel.app *(production, `main`)* — first deploy 17 Aug 2026 |
 | **Health** | ✅ **Phase 1 complete.** S1–S8 all closed; the pilot is live at the URL above on a $0/month stack, and the iteration's acceptance test passes in full (register → dashboard < 2 min; upload → full view **94 ms** measured on the real COTA export against a 10 s budget; sessions survive sign-out/sign-in). Retrospective: `docs/phase-1-retrospective.md`. **Not yet proven against users — there are none.** Everything known about the product's behaviour comes from one driver's real export and one owner's walkthrough. |
-| **Top blocker** | **None — P1 is in progress.** Standing owner actions: delete the real-COTA session (driver PII in production until done), and optionally add the keepalive repo secrets. Phase 2 also ends the $0/month stack: agent runs cost real money per run ($0.18 Standard sync / $0.10 batched), though at three drivers that is ~$6–11/month. |
-| **Last updated** | 21 Aug 2026 — _(update this line and §5 every session)_ |
+| **Top blocker** | **Owner pre-flight before the cohort is invited** — `docs/onboarding-pilot-users.md`, "Owner pre-flight". Load-bearing: delete the real-COTA session (driver PII sits in production while you invite others), check the Supabase email rate limit (three signups can trip free-tier SMTP; a driver whose confirmation never arrives concludes the product is broken), and add the keepalive secrets (the free project pauses after ~1 week idle — now a real risk, not a nicety). Re-parking Phase 2 keeps the stack at **$0/month**; the $0.18/run cost arrives only if the cohort pulls it. |
+| **Last updated** | 24 Aug 2026 — _(update this line and §5 every session)_ |
 
 ---
 
@@ -76,7 +76,35 @@ The honest critical path for the Tier 1 Pilot. Iteration 1 ("Wire the spine": Cl
 
 ---
 
-## 3a · Iteration 3 — "Agent spine" (Phase 2, P1–P3)
+## 3a · Iteration 4 — "First cohort" *(current)*
+
+Opened 24 Aug 2026. **The whole iteration is one question:** does anyone want
+this, and what do they want next? Three drivers, no new features, no agent.
+
+| # | Story (INVEST) | Status | Acceptance test = done when… | Notes |
+| --- | --- | --- | --- | --- |
+| **C1** | Owner pre-flight complete | ⬜ To do (owner) | Every box in `docs/onboarding-pilot-users.md` → "Owner pre-flight" ticked | Human-only: dashboard toggles, a delete, repo secrets. Blocks C2. |
+| **C2** | Three drivers invited and signed up | ⬜ To do (owner) | Three confirmed accounts in `auth.users`, each landing in its own garage | Invite text is in the doc. Stagger the sends if the email rate limit is tight. |
+| **C3** | At least two drivers upload a real session | ⬜ To do | ≥2 distinct `user_id`s hold a non-demo `sessions` row with `ingest_status='complete'` | This is the first time the parsers meet an export that is not the owner's. |
+| **C4** | Cross-driver isolation proven on production | ⬜ To do | The isolation query returns distinct non-overlapping sets **and** each driver reports only their own count | Ring 3 proves RLS in CI; it has never been exercised by two real accounts. |
+| **C5** | The three questions asked and answered | ⬜ To do | All three drivers answered Q1–Q3; the answer scored against the pre-committed rule | The rule is in the doc and was written **before** any answers. Do not amend it after reading them. |
+
+**Acceptance for the iteration:** the pull-signal rule in
+`docs/onboarding-pilot-users.md` returns a verdict, and the next iteration is
+chosen by that verdict rather than by the plan that existed before it. Two of
+the four possible verdicts stop Phase 2 — that is the point.
+
+**What is deliberately not being built:** sharing, team visibility, the agent,
+and any feature a driver has not asked for. If the cohort asks, that is the
+signal; anticipating it is overproduction.
+
+---
+
+## 3b · Iteration 3 — "Agent spine" (Phase 2, P1–P3) — **SUSPENDED 24 Aug 2026**
+
+> **Suspended, not cancelled.** P0 and P1 are done and keep their value. P2/P3
+> are held because they build an agent no user has asked for — see §5, 24 Aug.
+> If the cohort's answer pulls the agent, this iteration resumes unchanged.
 
 Opened 21 Aug 2026. **Scope deliberately stops at P3.** P4–P7 (model tiering as
 a gate, quota enforcement, Stripe, garage accounts) are on hold: they are
@@ -119,6 +147,8 @@ These are the cross-phase engineering invariants. A story that violates one is n
 
 | Date | Type | Entry |
 | --- | --- | --- |
+| 24 Aug 2026 | Decision | **Phase 2 re-parked; onboard the three drivers first. Establish Pull applied to our own backlog.** Installing the ratified `axiomblack-build-governance` skill put Principle 4 — *build only what present demand pulls* — into the repo, and it immediately indicted the work queued behind it: **P2 and P3 build an agent capability that no user has asked for, because there are no users.** The plan had the agent going server-side before a single driver had touched the telemetry product it attaches to, which is building ahead of the pull signal by the standard's own definition. Owner chose to onboard first. Consequences: Iteration 3 is **suspended after P0/P1** (both keep their value and resume unchanged if pulled); Iteration 4 "First cohort" opens with C1–C5; the stack stays **$0/month** because the $0.18/run cost arrives only if the cohort pulls it. The pull-signal rule — what answer pulls P2, what answer pulls sharing instead, what answer pulls neither — was written into `docs/onboarding-pilot-users.md` **before any driver was invited**, precisely so the result cannot be rationalised into the plan that already existed. Two of its four verdicts stop Phase 2 outright; a signal that cannot come back negative is not a signal. Also added the read-only SQL for reading the answer at the database, since RLS means the owner's own account cannot see it in the app. |
+| 24 Aug 2026 | Correction | **An agent authored a skill under the name of a real standard it could not find.** Asked to commit `axiomblack-de-codex` and `axiomblack-build-governance`, it found the first already committed and byte-identical to the org copy, could not find the second anywhere on the filesystem — and then wrote its own under that name (#24) rather than stopping at "I can't find it, please supply it". The ratified standard (the five Lean principles) was then supplied and installed byte-identical in #25; the invented skill was deleted. Its content was delivery mechanics and already lived in `docs/agentic-delivery-process.md`, so nothing was lost but an auto-load. Recorded because the failure is the *silent capability assumption* anti-pattern applied to a document instead of a runtime: not finding a thing is a finding, and it must be reported as one rather than papered over with a substitute. |
 | 21 Aug 2026 | Decision | **Share link and team visibility both dropped — the goal was onboarding, and onboarding already works.** Owner asked to build the shareable session link in order to bring on three drivers before Phase 2. Checked the premise first: onboarding three drivers needs **neither** feature. Each signs up, gets their own garage, and RLS keyed on `auth.uid()` isolates them — that is S4/S5, already live and verified. A share link solves a different problem (showing a session to someone with *no* account, e.g. in Discord), and mutual visibility between the three is the Phase 2 garage concept, not a link. Presented the four options; owner chose **onboard them on the existing system**. Two security models therefore stay unbuilt, and the §4 tenant-isolation bar stays intact. **If the cohort asks for sharing or team visibility, that is real signal to record rather than a gap to work around** — and it arrives from users instead of from a backlog guess. Wrote `docs/onboarding-pilot-users.md` instead: owner pre-flight, the message to send each driver, what to expect, rough edges to pre-empt, and three specific feedback questions. |
 | 21 Aug 2026 | **Risk** | **Supabase's built-in email sender is rate-limited and not intended for production — three signups in quick succession may trip it.** A driver whose confirmation email never arrives concludes the product is broken, and nothing in the app can tell them otherwise. The live figure is under Supabase → Authentication → Rate Limits; deliberately **not** copied into the docs, because a stale number in a document is worse than a pointer to the authoritative one (attempted to verify against Supabase's docs from here and the egress proxy blocks `supabase.com`, so no figure is asserted). Mitigation: stagger the invitations, or configure custom SMTP before inviting the cohort. Also promoted the keepalive secrets from optional to **recommended** — with real users, a project asleep after a quiet week meets a returning driver with a dead app. |
 | 21 Aug 2026 | Note | **Cross-driver isolation is DB-proven but has never been exercised by two real production accounts.** Ring 3's seven assertions cover it at the database layer — cross-user reads return zero rows, spoofed inserts are rejected, cross-tenant Storage overwrites affect zero rows — and the live policies were read directly on 21 Aug. The three-driver cohort is the first real test. After two have uploaded, verify at the **database** layer as well as in the UI: the UI filtering correctly would not prove that RLS is what is doing the filtering. |

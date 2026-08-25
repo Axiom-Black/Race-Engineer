@@ -117,6 +117,70 @@ exact wording narrows the cause quickly.
 
 ---
 
+## What this cohort is *for* — and the rule decided in advance
+
+This cohort is not a launch. It is the **pull signal for Phase 2**: the three
+drivers exist to answer whether an AI debrief is a thing anyone wants, before
+P2/P3 spend real money building one. That only works if the answer is read
+honestly, so the rule is written **now, before any answers arrive** — otherwise
+whatever comes back gets rationalised into the plan that already existed.
+
+**Question 3 — "what did you want to do next and couldn't?" — is the KPI.**
+It is deliberately unprompted: nobody is asked about AI, so an AI answer is
+real demand rather than a suggestion echoed back.
+
+| What comes back | What it pulls |
+| --- | --- |
+| **≥2 of 3 unprompted ask for analysis/coaching** ("what should I change", "why am I slower here") | Phase 2 P2→P3 is pulled. Build it. |
+| **≥2 of 3 ask for sharing / comparing with each other** | The garage concept is the real demand, not the agent. Re-sequence Phase 2 around it. |
+| **They mostly ask for telemetry depth** (a channel, a plot, an export) | Neither is pulled. Extend Phase 1; Phase 2 stays parked. |
+| **They stop using it** | The most valuable answer and the cheapest. Find out why before building anything. |
+
+**Supporting counts, not the decision itself:** how many sessions each driver
+uploads after the first, and whether any returns a second week. A driver who
+uploads once and never comes back has told you something regardless of what
+they say in a message.
+
+> **This rule is falsifiable on purpose.** Two of the four outcomes above stop
+> P2/P3, which is the point — a pull signal that cannot come back negative is
+> not a signal.
+
+### Reading the answer at the database
+
+The app cannot show you this: RLS means the owner's own account sees only its
+own rows. Run these in the Supabase SQL editor, which runs as the service role
+and is not subject to RLS. **Read-only — none of them write.**
+
+```sql
+-- Who signed up, and did they get past signup?
+select u.id, u.email, u.created_at, u.last_sign_in_at,
+       u.email_confirmed_at is not null as confirmed
+from auth.users u
+order by u.created_at;
+
+-- Real uploads per driver (demo rows excluded — they prove nothing)
+select s.user_id, count(*) as sessions,
+       min(s.created_at) as first_upload,
+       max(s.created_at) as last_upload,
+       count(*) filter (where s.ingest_status <> 'complete') as incomplete
+from public.sessions s
+where s.is_demo = false
+group by s.user_id
+order by sessions desc;
+
+-- Isolation, checked where it actually lives: no user_id may span two owners
+select s.user_id, count(distinct s.id) as own_sessions
+from public.sessions s
+group by s.user_id;
+```
+
+The third is the one the last section of this document calls for. Distinct,
+non-overlapping sets here, **plus** each driver reporting only their own count
+in the UI, is what proves RLS — not the UI filtering, which would look
+identical if it were doing the work itself.
+
+---
+
 ## The verification this cohort actually provides
 
 Cross-driver isolation is **proven at the database layer** — Ring 3 runs seven
