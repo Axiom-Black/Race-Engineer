@@ -55,4 +55,22 @@ function requireSupabaseEnv() {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), requireSupabaseEnv()],
+
+  // TEST ENVIRONMENT — deliberately 'node' by default.
+  //
+  // The 185 logic tests in src/lib are pure functions and run measurably
+  // faster without a DOM. Component tests opt IN per file with a docblock:
+  //
+  //     // @vitest-environment jsdom
+  //
+  // Chosen over making jsdom global so the cost is paid only by the files
+  // that need it, and over vitest projects so there is one config to read.
+  test: {
+    environment: 'node',
+    setupFiles: ['./src/test/setup.js'],
+    // A component test that renders nothing usually means a bad import or a
+    // silently swallowed error, so surface unhandled rejections rather than
+    // letting the assertion fail with a confusing "not found".
+    dangerouslyIgnoreUnhandledErrors: false,
+  },
 })

@@ -172,6 +172,27 @@ impersonated count includes seeded/demo rows, the total must too); and
 `begin`/`rollback` makes the whole probe read-only, so it is safe against
 production. *Codex I.1, V.2.*
 
+### A14 · A new dev dependency is an environment change — check the runner's
+
+**When:** adding any dependency with a runtime floor (`engines`), especially a
+test-only one. Test deps feel safe precisely because they never ship, which is
+what makes this easy to miss.
+
+**How:** before pushing, read the package's `engines` and compare it against
+**the CI runner's** version, not yours. Then make the floor enforceable rather
+than documentary: declare `engines` in `package.json` **and** set
+`engine-strict=true` in `.npmrc`, so a wrong runtime fails `npm ci` with
+`EBADENGINE` instead of warning into a scrollback nobody reads.
+
+**Payoff:** jsdom 30 requires `>=22.22.2`; CI was pinned to Node 20. The
+component suite passed locally on exactly 22.22.2 and **could never** pass on
+the runner — undici, loaded by jsdom, dies with
+`webidl.util.markAsUncloneable is not a function`, surfacing as
+`Failed to start forks worker`, which names neither Node nor jsdom. Note the
+shape: the 185 pre-existing tests still passed and the run still reported
+`185 passed`, with the failure only in an "Unhandled Errors" block. **A green
+count next to a red exit code is still red.** *Codex I.1, VII.3.*
+
 ---
 
 ## Part B — Session trail (newest first)
@@ -208,6 +229,14 @@ Each entry: date · what shipped · the method insight worth carrying forward.
 ---
 
 ## Part C — Environment & toolchain notes (so the next session skips the pain)
+
+> **Superseded 25 Aug 2026 for assertions — still the tool for *looking*.**
+> Component tests are now real infrastructure (`@testing-library/react` +
+> jsdom, opt-in per file with `// @vitest-environment jsdom`), so anything you
+> would assert by reading `innerText` belongs in a `*.test.jsx` that CI runs.
+> Keep the harness below for what a suite cannot do: **seeing** the thing. The
+> slab-sparkline was invisible in text output and obvious in the screenshot.
+> Rule of thumb — assert in the suite, *look* in the harness.
 
 ### Render a component in isolation in ~2 minutes (throwaway harness)
 
