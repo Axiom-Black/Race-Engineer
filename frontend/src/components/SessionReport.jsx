@@ -5,7 +5,7 @@
 // trace blob), not sample data. Replaces the first-pass SessionDetail
 // stand-in. Ports the prototype's visual language onto honest data; empty/
 // unreliable channels stay flagged, never hidden (standing bar).
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { C, font } from '../theme'
 import { getSession, getSessionTrace } from '../lib/sessions'
 import { deltaTrace, fmtDelta } from '../lib/delta'
@@ -17,6 +17,8 @@ const TABS = ['Summary', 'Performance', 'Instruments', 'Track Map', 'Channels']
 import { reconcile, isFastestLap, displayLapTimeS } from '../lib/lapReconciliation'
 import FaultNotice from './FaultNotice'
 import ChannelsTab from './ChannelsTab'
+import InstrumentCluster from './InstrumentCluster'
+import { advanceCursor } from '../lib/gauges'
 import { buildComparison } from '../lib/sessionCompare'
 import { personalBest, thermalPeaks, tyreCompound, circuitHistory } from '../lib/sessionSummary'
 
@@ -449,6 +451,7 @@ export default function SessionReport({ sessionId, sessions = [], onBack }) {
           refLabel={refTraceLap ? `lap ${refTraceLap.lap}` : null}
           cursor={cursor}
           setCursor={setCursor}
+          lapSeconds={displayLapTimeS(laps.find((l) => l.lap_no === lapNo), session, laps)}
         />
       )}
       {tab === 'Track Map' && trace && (
@@ -808,9 +811,56 @@ function PerformanceTab({ metrics, pts, lapValid, session, sessions }) {
 }
 
 // ── Instruments ───────────────────────────────────────────────────
-function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor }) {
+/**
+ * Play/pause transport for the replay.
+ *
+ * Driven by requestAnimationFrame rather than an interval so playback tracks
+ * real elapsed time: a dropped frame slows an interval-based replay
+ * permanently, while rAF simply advances further on the next tick.
+ *
+ * The persisted trace indexes by DISTANCE fraction, not seconds, so the lap's
+ * own time is what makes real-time playback possible at all.
+ */
+function useReplay(pointCount, lapSeconds, setCursor) {
+  const [playing, setPlaying] = useState(false)
+  const [rate, setRate] = useState(1)
+  const frame = useRef(0)
+  const last = useRef(0)
+  const pos = useRef(0)
+
+  const canPlay = pointCount > 1 && Number.isFinite(Number(lapSeconds)) && Number(lapSeconds) > 0
+
+  useEffect(() => {
+    if (!playing || !canPlay) return
+    const tick = (ts) => {
+      if (!last.current) last.current = ts
+      const dt = (ts - last.current) / 1000
+      last.current = ts
+      pos.current = advanceCursor(pos.current, pointCount, dt, lapSeconds, rate)
+      setCursor(Math.floor(pos.current))
+      frame.current = requestAnimationFrame(tick)
+    }
+    frame.current = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(frame.current)
+      last.current = 0
+    }
+  }, [playing, rate, pointCount, lapSeconds, setCursor, canPlay])
+
+  // Scrubbing by hand takes over: keep playback from snapping back to where
+  // the animation had got to.
+  const seek = (i) => {
+    pos.current = i
+    setCursor(i)
+  }
+
+  return { playing, setPlaying, rate, setRate, canPlay, seek }
+}
+
+function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor, lapSeconds }) {
+  const replay = useReplay(pts.length, lapSeconds, setCursor)
   if (!pts.length) return <div style={{ color: C.dim, padding: 20 }}>No trace for this lap.</div>
-  const P = { pts, refPts, cursor, onScrub: setCursor }
+  const P = { pts, refPts, cursor, onScrub: replay.seek }
   return (
     <Card style={{ padding: '16px 18px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
@@ -825,11 +875,59 @@ function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor }) {
           <span style={{ fontFamily: font.mono, fontSize: 12, color: C.pink }}>{(pts[cursor]?.d * 100).toFixed(1)}% of lap</span>
         </div>
       </div>
+      {/* Transport + scrubber. Playing is disabled rather than hidden when the
+          lap has no time: hiding it would leave a driver wondering where the
+          control went, while a disabled control with a reason explains itself. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={() => replay.setPlaying(!replay.playing)}
+          disabled={!replay.canPlay}
+          title={replay.canPlay ? undefined : 'Replay needs a lap time — this lap has none'}
+          style={{
+            background: replay.playing ? C.pinkBg : C.panel2,
+            border: `1px solid ${replay.playing ? C.pinkBd : C.line}`,
+            color: !replay.canPlay ? C.dim : replay.playing ? C.pink : C.silver2,
+            borderRadius: 7, padding: '6px 13px', fontSize: 11, fontWeight: 700,
+            fontFamily: font.ui, cursor: replay.canPlay ? 'pointer' : 'not-allowed',
+            opacity: replay.canPlay ? 1 : 0.55,
+          }}
+        >
+          {replay.playing ? '❚❚ Pause' : '▶ Play'}
+        </button>
+        <div style={{ display: 'flex', gap: 3 }}>
+          {[0.5, 1, 2].map((sp) => (
+            <button
+              key={sp}
+              type="button"
+              onClick={() => replay.setRate(sp)}
+              aria-pressed={replay.rate === sp}
+              style={{
+                background: replay.rate === sp ? C.pink : C.panel2,
+                border: 'none', color: replay.rate === sp ? '#0A0A0C' : C.dim,
+                borderRadius: 5, padding: '6px 9px', fontSize: 10, fontWeight: 700,
+                fontFamily: font.mono, cursor: 'pointer',
+              }}
+            >
+              {sp}x
+            </button>
+          ))}
+        </div>
+        <span style={{ fontFamily: font.mono, fontSize: 11, color: C.dim, marginLeft: 'auto' }}>
+          {pts.length} samples
+        </span>
+      </div>
       <input
         type="range" min={0} max={pts.length - 1} value={cursor}
-        onChange={(e) => setCursor(Number(e.target.value))}
+        aria-label="Scrub the lap"
+        onChange={(e) => {
+          replay.setPlaying(false)
+          replay.seek(Number(e.target.value))
+        }}
         style={{ width: '100%', marginBottom: 14, accentColor: C.pink }}
       />
+
+      <InstrumentCluster point={pts[Math.min(cursor, pts.length - 1)]} />
       {delta && <DeltaPlot delta={delta} cursor={cursor} onScrub={setCursor} refLabel={refLabel} />}
       {refPts && !delta && (
         <p style={{ fontSize: 11, color: C.warn, marginTop: 0, marginBottom: 12 }}>

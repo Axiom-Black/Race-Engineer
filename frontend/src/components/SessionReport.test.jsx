@@ -78,6 +78,84 @@ describe('the Channels tab', () => {
   })
 })
 
+// A trace shaped exactly as ingest.js writes it: distance-indexed points
+// carrying speed, pedals, gear, G and per-corner slip.
+const PT = (i, over = {}) => ({
+  x: 0.5, y: 0.5, s: 180, t: 100, b: 0, g: 4, gl: 0.8, glo: -0.2,
+  r: 7400, sl: [1.2, 1.4, 6.0, 14.5], d: i / 9, ...over,
+})
+const TRACE = { aspect: 0.581, laps: [{ lap: 2, pts: Array.from({ length: 10 }, (_, i) => PT(i)) }] }
+
+describe('the Instruments cluster', () => {
+  beforeEach(() => { getSessionTrace.mockResolvedValue(TRACE) })
+
+  it('renders the gauges at the cursor', async () => {
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Instruments' }))
+    expect(await screen.findByLabelText('SPEED gauge')).toBeInTheDocument()
+    expect(screen.getByLabelText('ENGINE gauge')).toBeInTheDocument()
+    expect(screen.getByLabelText('G force')).toBeInTheDocument()
+  })
+
+  it('shows gear, pedals and slip for that point', async () => {
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Instruments' }))
+    // "4" also appears as a lap number and an axis label, so scope to the
+    // gear readout by its neighbouring label.
+    expect(await screen.findByText('GEAR')).toBeInTheDocument()
+    expect(screen.getAllByText('4').length).toBeGreaterThan(0)     // gear
+    expect(screen.getByText('100%')).toBeInTheDocument()           // throttle
+    expect(screen.getByText('14.5%')).toBeInTheDocument()          // RR slip
+  })
+
+  it('colours slip by severity rather than showing four identical rows', async () => {
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Instruments' }))
+    // 1.2 ok, 6.0 warn, 14.5 high — the point of the indicator.
+    expect(await screen.findByText('1.2%')).toBeInTheDocument()
+    expect(screen.getByText('6.0%')).toBeInTheDocument()
+  })
+
+  it('offers a working transport when the lap has a time', async () => {
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Instruments' }))
+    const play = await screen.findByRole('button', { name: /Play/ })
+    expect(play).toBeEnabled()
+    await userEvent.click(play)
+    expect(screen.getByRole('button', { name: /Pause/ })).toBeInTheDocument()
+  })
+
+  it('places braking at the TOP of the G cross', async () => {
+    // Measured, not assumed: LMU reports POSITIVE G Force Long under braking
+    // (+1.63 G mean with brake > 70%). The dot must sit above centre, which is
+    // the motorsport convention. A sign flip here would look plausible and be
+    // backwards, so it is pinned.
+    getSessionTrace.mockResolvedValue({
+      aspect: 0.581,
+      laps: [{ lap: 2, pts: Array.from({ length: 10 }, (_, i) => PT(i, { gl: 0, glo: 2.0, b: 90, t: 0 })) }],
+    })
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Instruments' }))
+    const cross = await screen.findByLabelText('G force')
+    const dot = cross.querySelector('circle[r="5"]')
+    const cy = Number(dot.getAttribute('cy'))
+    const centre = Number(cross.getAttribute('height')) / 2
+    expect(cy).toBeLessThan(centre)
+  })
+
+  it('DISABLES play rather than hiding it when the lap has no time', async () => {
+    // Hiding the control leaves a driver wondering where it went; a disabled
+    // one with a reason explains itself.
+    getSession.mockResolvedValue({
+      session: SESSION,
+      laps: [{ id: 'l2', lap_no: 2, lap_time_s: null, valid: false, summary: { kind: 'partial' } }],
+    })
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Instruments' }))
+    expect(await screen.findByRole('button', { name: /Play/ })).toBeDisabled()
+  })
+})
+
 describe('the Summary hero', () => {
   it('shows circuit length, laps and full-throttle share', async () => {
     await renderReport()
