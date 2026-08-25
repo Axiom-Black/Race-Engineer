@@ -11,15 +11,12 @@ import { getSession, getSessionTrace } from '../lib/sessions'
 import { deltaTrace, fmtDelta } from '../lib/delta'
 import { formatSessionDateTime } from '../lib/sessionTime'
 
-const TABS = ['Summary', 'Performance', 'Instruments', 'Track Map']
+const TABS = ['Summary', 'Performance', 'Instruments', 'Track Map', 'Channels']
 
-const DOMAIN_COLOR = {
-  Telemetry: C.pink, Tire: C.warn, Brakes: C.orange, Aero: C.blue,
-  Powertrain: C.good, Environment: C.silver2, GPS: C.dim, Session: C.dim,
-}
 
 import { reconcile, isFastestLap, displayLapTimeS } from '../lib/lapReconciliation'
 import FaultNotice from './FaultNotice'
+import ChannelsTab from './ChannelsTab'
 
 // ── formatting ────────────────────────────────────────────────────
 function fmtTime(s) {
@@ -296,7 +293,6 @@ export default function SessionReport({ sessionId, onBack }) {
   const [lapNo, setLapNo] = useState(null)
   const [refLapNo, setRefLapNo] = useState(null) // S8: comparison lap ('' = none)
   const [cursor, setCursor] = useState(0)
-  const [domainFilter, setDomainFilter] = useState('All')
 
   useEffect(() => {
     let active = true
@@ -428,8 +424,10 @@ export default function SessionReport({ sessionId, onBack }) {
       </div>
 
       {tab === 'Summary' && (
-        <SummaryTab session={session} laps={laps} channels={channels} flagged={flagged} metrics={metrics} traceLap={traceLap} domainFilter={domainFilter} setDomainFilter={setDomainFilter} />
+        <SummaryTab session={session} laps={laps} channels={channels} flagged={flagged} metrics={metrics} traceLap={traceLap} />
       )}
+      {tab === 'Channels' && <ChannelsTab channels={channels} />}
+
       {tab === 'Performance' && <PerformanceTab metrics={metrics} pts={pts} lapValid={!!traceLap} />}
       {(tab === 'Instruments' || tab === 'Track Map') && !trace && (
         <div style={{ color: C.dim, fontSize: 13, padding: 20, border: `1px dashed ${C.line}`, borderRadius: 12 }}>
@@ -454,9 +452,7 @@ export default function SessionReport({ sessionId, onBack }) {
 }
 
 // ── Summary ───────────────────────────────────────────────────────
-function SummaryTab({ session, laps, channels, flagged, metrics, traceLap, domainFilter, setDomainFilter }) {
-  const domains = ['All', ...Array.from(new Set(channels.map((c) => c.domain))).sort()]
-  const shown = domainFilter === 'All' ? channels : channels.filter((c) => c.domain === domainFilter)
+function SummaryTab({ session, laps, channels, flagged, metrics, traceLap }) {
   const silhouette = traceLap?.pts?.filter((p) => p.x != null) ?? []
   const sw = 200
   const sh = Math.round(200 * (session.summary && silhouette.length ? 0.6 : 0.6))
@@ -511,35 +507,24 @@ function SummaryTab({ session, laps, channels, flagged, metrics, traceLap, domai
         })}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ color: C.silver3, fontSize: 14, fontWeight: 700, margin: 0 }}>
-          Channel inventory · {channels.length} <span style={{ color: C.dim, fontWeight: 400, fontSize: 12 }}>({flagged.length} flagged)</span>
-        </h2>
-        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-          {domains.map((d) => (
-            <span key={d} onClick={() => setDomainFilter(d)} style={{ cursor: 'pointer', fontSize: 9, fontWeight: 700, letterSpacing: 0.5, padding: '3px 8px', borderRadius: 5, color: domainFilter === d ? '#0A0A0C' : DOMAIN_COLOR[d] || C.dim, background: domainFilter === d ? DOMAIN_COLOR[d] || C.pink : 'transparent', border: `1px solid ${domainFilter === d ? 'transparent' : C.line}` }}>
-              {d}
-            </span>
-          ))}
-        </div>
-      </div>
-      <p style={{ color: C.dim, fontSize: 12, margin: '0 0 10px' }}>
-        Every decoded channel, honestly — known-empty and unreliable channels are flagged, never hidden.
-      </p>
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: 'hidden' }}>
-        {shown.map((c) => (
-          <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 14px', borderBottom: `1px solid ${C.line}`, fontSize: 12 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: C.silver2 }}>
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: DOMAIN_COLOR[c.domain] || C.dim, flexShrink: 0 }} />
-              {c.name}
-              {c.allZero && <FlagBadge kind="empty">EMPTY</FlagBadge>}
-              {!c.reliable && <FlagBadge kind="unreliable">UNRELIABLE</FlagBadge>}
-            </span>
-            <span style={{ color: C.dim, fontFamily: font.mono }}>
-              {c.allZero ? '—' : `${c.min?.toFixed(2)} … ${c.max?.toFixed(2)} ${c.unit}`}
-            </span>
+      {/* The inventory moved to its own Channels tab (25 Aug 2026). It was 70
+          rows below the lap table with no way to search it; Summary is a
+          summary again, and the inventory got a search box worth having. */}
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: '13px 16px',
+                    display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ color: C.silver3, fontSize: 13, fontWeight: 700 }}>
+            {channels.length} channels decoded
           </div>
-        ))}
+          <div style={{ color: C.dim, fontSize: 11.5, marginTop: 2 }}>
+            {flagged.length > 0
+              ? `${flagged.length} flagged as empty or unreliable — listed, never hidden`
+              : 'None flagged'}
+          </div>
+        </div>
+        <span style={{ marginLeft: 'auto', color: C.dim, fontSize: 11.5 }}>
+          See the <strong style={{ color: C.silver2 }}>Channels</strong> tab
+        </span>
       </div>
     </>
   )
@@ -595,17 +580,6 @@ function ReconcileFlags({ session, laps }) {
   )
 }
 
-function FlagBadge({ kind, children }) {
-  const map = {
-    empty: { fg: C.warn, bd: 'rgba(232,194,74,0.35)', bg: 'rgba(232,194,74,0.1)' },
-    unreliable: { fg: C.danger, bd: 'rgba(255,85,85,0.35)', bg: 'rgba(255,85,85,0.1)' },
-  }[kind]
-  return (
-    <span style={{ border: `1px solid ${map.bd}`, background: map.bg, color: map.fg, borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700, letterSpacing: 0.5, marginLeft: 6 }}>
-      {children}
-    </span>
-  )
-}
 
 // ── Performance ───────────────────────────────────────────────────
 function PerformanceTab({ metrics, pts, lapValid }) {
