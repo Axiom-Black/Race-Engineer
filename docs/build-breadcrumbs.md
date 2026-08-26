@@ -343,6 +343,42 @@ report it as progress. *Codex II.1, IV.3.*
 
 ---
 
+### A19 · A test that passes when you break the code is not a test — break it and watch
+
+Writing the assertion is the easy half. Two probes in the Track Notes work
+passed a deliberately sabotaged implementation, and both were *carefully
+written*, *well named* and *wrong*:
+
+- **"Prefers the same car over a newer note"** — the two fixtures also differed
+  in temperature, and the closest-conditions term picked the right answer on its
+  own. Delete the car preference entirely and the test still passed. Fixed by
+  making the conditions **identical**, so only the property under test can
+  decide.
+- **"Cannot drift one stack down a straight"** — the fixture spaced notes at 90%
+  of the grouping tolerance, and at that spacing a mean-anchored implementation
+  also splits. Fixed by spacing them at **30%**, where a lagging mean keeps
+  accepting notes and the stack's span visibly exceeds the tolerance.
+
+The pattern in both: **the test was satisfied by a mechanism other than the one
+it named.** A green test proves *something* is producing the expected output; it
+does not prove the thing you meant. And the failure is invisible from the test's
+own text — both read as good tests.
+
+So the procedure is not "write a test" but **"write a test, then break the line
+it defends and confirm it goes red."** Seven breaks were run in this session;
+five bit immediately, two exposed toothless probes. That ratio is the argument:
+without the breaks, roughly a third of the suite's most load-bearing claims
+would have been decoration.
+
+Two shortcuts that keep it cheap: `perl -0pi -e` the single expression rather
+than hand-editing (and `cp` the file first — restoring must be trivial or you
+will skip the check), and prefer a break that makes the *wrong* thing plausible
+— "recency instead of relevance", "running mean instead of first member" — over
+a break that makes the code obviously broken. A test that only catches `return
+null` catches nothing worth catching. *Codex III.2, IV.3.*
+
+---
+
 ---
 
 ## Part B — Session trail (newest first)
@@ -351,6 +387,7 @@ Each entry: date · what shipped · the method insight worth carrying forward.
 
 | Date | Shipped | Method insight |
 | --- | --- | --- |
+| 26 Aug 2026 | Week 0 closed — W0.1 build marker, W0.2 imperial ↔ SI, W0.3 Track Notes (schema + RLS + logic + UI); LMU roster inventory filled | **Break the code and watch the test go red, or you do not know whether you wrote a test.** Full pattern in **A19** — two carefully written, well-named probes passed a deliberately sabotaged implementation, and their text gave no hint of it. **The design lesson of the session is a storage one, and it appeared three times in three different guises:** units convert only at the *display edge* because converting at ingest makes two drivers' archives numerically incompatible; notes anchor to a *distance span* rather than a corner number because numbering is ours and moved twice in three days; and a note's provenance is a *copy* of the session's identity rather than a join, because a join is unreadable in exactly the case the design exists for. Same rule each time: **store the invariant, derive the convenience.** The tell for which is which is to ask what happens when the other thing changes — the driver's preference, the detector's output, the session's existence — and whichever survives that is what belongs on disk. **A constraint worth carrying:** `session_key` is stored as text *beside* the nullable foreign key it duplicates, which looks redundant until you notice SQL NULLs compare as **distinct** — a unique key over a nullable column silently stops constraining anything the moment that column nulls. That failure mode is invisible in review and invisible in a passing suite; the only thing that catches it is an acceptance check that deletes the parent row and *then* tries the duplicate. **And on blockers that turn out to be smaller than they look:** the track roster had no reachable source for its numeric columns, which read as a hard blocker until noticing that length, longest straight and corner count are all *measured at upload* — so the table fills itself as the work proceeds and only the one genuinely external figure (official corner count) needs anybody. Before escalating a missing input, check how much of it your own pipeline already produces. |
 | 26 Aug 2026 | Corner detection re-scaled off the lap's own typical corner (27× input tolerance, was ±12%) | **Measure the tolerance, not the answer — and let the sweep refute your hypothesis.** Full pattern in **A18**. The second lesson is a support one that is really a product one: the reported defect (14 corners instead of 20) was not a defect at all — it was a session parsed by an older bundle, because parsing is client-side and derived data is written at upload. Diagnosing it took three exchanges and was only settled by noticing the uploaded session's channel summary was *numerically identical* to the committed fixture's, which proved it was the same export and therefore that the detector was not the variable. **When derived data is computed at write time, a stale record is indistinguishable from a broken feature** — and nothing in the UI named the build that produced either the page or the record. The cheap fix (a build marker) and the real fix (backfill from the raw files already in Storage) are both now the top blocker, because the next occurrence costs the same three exchanges. **A smaller habit worth keeping:** the fastest way to identify what a user is looking at was to compare a summary statistic of their data against a known artifact. Channel min/max is free, carries no PII, and uniquely identified the file. |
 | 26 Aug 2026 | Corner detection moved to ingest, on full-rate lateral G: 20/20 at COTA on every lap | **The ceiling was the channel, not the algorithm.** Full pattern in **A17**. The session's second lesson is about the difference between a target and a criterion: the ask was "get all 20", and it is trivially possible to reach 20 on one circuit by tuning until the count matches — which would have shipped a detector that fails on the first track nobody here has driven. What made the result trustworthy was refusing to accept any setting that was not (a) a *plateau*, with two parameters varying across a range without changing the answer, (b) *repeatable* on four independent laps, and (c) built from **dimensionless** thresholds, so a test can prove the same lap at half the grip and double the sample rate returns the same corners. The number and the confidence came from the same discipline. **Also worth carrying:** normalising a measurement per-lap felt natural and was wrong — the yardstick (lateral capability) belongs to the car and the circuit, so a lap where the driver never pushed re-scaled its own noise into signal. When you divide by something, ask what population that something should be measured over; "the thing in front of me" is a default, not an answer. |
 | 26 Aug 2026 | Readability programme closed: adaptive trace resolution, map transport + panel, Progression rework, Engineering Run readiness, run averages | **Fix the allocation before you buy more capacity — and then go and check what depended on the old shape.** Full pattern in **A16**. The session's other reusable lesson is about *labels on borrowed layouts*: three of these five views were ported from prototypes that show figures we cannot compute. The prototype's Progression column says GAP TO IDEAL against a curated reference-lap library that does not exist, and its Engineering Run fills metric boxes with "— TBD". Copying either verbatim ships a claim about data you do not have; deleting them loses the layout. **What worked was keeping the layout and changing the measurement to one that is real** — gap to *your own* best, and per-agent *input readiness* instead of per-agent output — then pinning the honest label with a test that asserts the prototype's wording is **absent**, so it cannot drift back in when the file is next touched. **The Engineering Run version is worth its own note:** the prototype's TBD boxes were honest and worth nothing. Asking "what is the one real question this surface can answer today?" produced a better feature than either shipping the fake or shipping nothing — LMU ships GTE cars with several channels permanently empty, so telling a driver *now* which agents their export can feed is payable, needs no backend, and is something only we can answer. **Also, again:** two real defects this session were found by rendering and looking, not by 500 tests — an off-by-one in cumulative distance that was invisible while a derived field masked it, and a reconciled/unreconciled lap-time contradiction on one screen (that one *was* caught, by an existing test whose assertion then got **stronger**, not relaxed, to accommodate the new view). |
