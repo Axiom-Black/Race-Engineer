@@ -66,16 +66,20 @@ describe('a healthy session', () => {
     renderOverview()
     expect(screen.getByText('TIMED LAPS')).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument() // out-lap excluded
-    expect(screen.getByText('2:15.475')).toBeInTheDocument()
+    // Twice now: the headline, and the same lap in the lap-by-lap strip.
+    expect(screen.getAllByText('2:15.475').length).toBeGreaterThan(0)
     expect(screen.getByText('246')).toBeInTheDocument() // 245.98 km/h
     expect(screen.getByText('13.1')).toBeInTheDocument() // 93.0 - 79.92 l
   })
 
-  it('shows the .ldx fastest time, not the trace time', () => {
-    // 2:15.475 (.ldx) rather than 2:15.500 (.ld). If these ever diverge on
-    // screen, the overview contradicts the report one click away.
+  it('shows the .ldx fastest time, not the trace time — everywhere on the page', () => {
+    // 2:15.475 (.ldx) rather than 2:15.500 (.ld). The lap-by-lap strip added
+    // with the run averages reads the same lap, so it has to reconcile too:
+    // 2:15.500 in a chip under a 2:15.475 headline is the overview
+    // contradicting itself on one screen.
     renderOverview()
     expect(screen.queryByText('2:15.500')).not.toBeInTheDocument()
+    expect(screen.getAllByText('2:15.475')).toHaveLength(2)
   })
 
   it('raises no flags', () => {
