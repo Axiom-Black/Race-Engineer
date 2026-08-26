@@ -20,6 +20,7 @@ import { parseLd, decodeAll, lapBoundaries } from './motec/ld'
 import { parseLdx, setupSummary } from './motec/ldx'
 import { parseSvm, vehicleInfo, energyScheme } from './motec/svm'
 import { domainOf } from './motec/domain'
+import { importanceWeights, allocateByWeight } from './resample'
 
 const TARGET_POINTS_PER_LAP = 400
 const WHEEL_CHANNELS = ['FL', 'FR', 'RL', 'RR']
@@ -138,17 +139,27 @@ function cumulativeDistance(speedSamples, rateHz) {
   const cum = new Array(speedSamples.length)
   let acc = 0
   for (let i = 0; i < speedSamples.length; i++) {
-    acc += (speedSamples[i] / 3.6) * dt // km/h -> m/s
+    // Distance BEFORE this sample, so cum[0] is 0 and cum[i] is genuinely
+    // "how far the car had travelled when sample i was taken". Accumulating
+    // first put the first sample's own interval at index 0, which made the
+    // lap's opening point sit 0.7 m down the road — invisible while `d` was
+    // derived from the output index, and a lie the moment `d` came from here.
     cum[i] = acc
+    acc += (speedSamples[i] / 3.6) * dt // km/h -> m/s
   }
   return cum
 }
 
 /**
- * Resample one lap to ~400 points evenly spaced by normalized track
- * distance (d: 0 -> 1), matching the prototype SessionReport `pts` shape.
+ * Resample one lap to at most TARGET_POINTS_PER_LAP points, spaced by
+ * IMPORTANCE-WEIGHTED track distance (see lib/resample.js): dense through
+ * corners and braking zones, sparse down straights, for the same stored budget.
  * GPS x/y are normalized against the SESSION-WIDE bounding box (passed in)
  * so every lap's points share one consistent map projection.
+ *
+ * `d` is each point's TRUE distance fraction (0 -> 1) and is no longer
+ * inferable from its index — consumers must plot against `d`, never against
+ * `i / (n - 1)`.
  */
 function buildLapPoints(ld, startS, endS, gpsBounds) {
   const master = ld.channels['Ground Speed']
@@ -168,15 +179,20 @@ function buildLapPoints(ld, startS, endS, gpsBounds) {
   const lonSpan = lonMax - lonMin || 1
   const latSpan = latMax - latMin || 1
 
+  // Where the points go. Lateral G is sampled onto the master clock first so
+  // the weighting sees one aligned series — G Force Lat runs at its own rate,
+  // and an unaligned weight field would shift every corner's density.
+  const gLatCh = ld.channels['G Force Lat']
+  const gLat =
+    gLatCh && !gLatCh.allZero
+      ? speedSlice.map((_, k) => nearestSample(gLatCh, (i0 + k) / rate))
+      : undefined
+  const weights = importanceWeights({ speeds: speedSlice, gLat, rateHz: rate })
+  const indices =
+    totalDist > 0 ? allocateByWeight(cumDist, weights, TARGET_POINTS_PER_LAP) : [0]
+
   const pts = []
-  let searchFrom = 0
-  const n = totalDist > 0 ? TARGET_POINTS_PER_LAP : 1
-  for (let k = 0; k < n; k++) {
-    const targetDist = (k / Math.max(1, n - 1)) * totalDist
-    // cumDist is monotonically non-decreasing; walk forward from the last
-    // match instead of re-scanning from 0 each time.
-    while (searchFrom < cumDist.length - 1 && cumDist[searchFrom] < targetDist) searchFrom++
-    const localIdx = searchFrom
+  for (const localIdx of indices) {
     const globalIdx = i0 + localIdx
     const t = globalIdx / rate
 
@@ -200,7 +216,7 @@ function buildLapPoints(ld, startS, endS, gpsBounds) {
       glo: round2(nearestSample(ld.channels['G Force Long'], t)),
       r: nearestSample(ld.channels['Engine RPM'], t),
       sl,
-      d: Number((k / Math.max(1, n - 1)).toFixed(4)),
+      d: totalDist > 0 ? Number((cumDist[localIdx] / totalDist).toFixed(4)) : 0,
     })
   }
   return { pts, distanceM: totalDist }

@@ -19,20 +19,25 @@
 // Positions are the normalised 0…1 GPS the trace already carries, so curvature
 // is in normalised units and the threshold is a shape property, not a distance.
 //
-// THE LIMIT IS TRACE RESOLUTION, AND IT IS OURS.
+// THE LIMIT IS TRACE RESOLUTION, AND IT WAS OURS — NOW PARTLY BOUGHT BACK.
 //
-// Phase 1 persists a DOWNSAMPLED trace — ~400 points per lap. At COTA that is
-// 5.42 km / 400 = roughly 13.5 m between samples, and COTA's tight sequences
-// are shorter than the window any curvature estimate needs. Sweeping the real
-// export shows detection plateauing at TWELVE corners: curvature alone reaches
-// 13 across every threshold and span tried, speed dips alone 12, the union 12.
-// The circuit has 20.
+// Phase 1 persists a DOWNSAMPLED trace. When those points were spread evenly by
+// distance — 5.42 km / 400 ≈ 13.5 m EVERYWHERE at COTA — detection plateaued at
+// TWELVE corners on a circuit with twenty, because the tight sequences are
+// shorter than the window any curvature estimate needs at that spacing.
 //
-// So the gap is not a tuning failure and cannot be tuned away. Raising the
-// persisted trace resolution is the only thing that would move it, and that is
-// a storage decision, not a detection one. The earlier prototype's 16 corners
-// came from a set precomputed against the full-rate data, which is why it is
-// not reproducible here.
+// lib/resample.js changed where the points go, not how many there are: the same
+// 400 now cluster through corners and braking zones (~5 m apart) and thin out
+// down the straights (~35 m), which is the only place they were ever wasted.
+// Re-sweeping the real COTA export against the new trace gives FIFTEEN corners,
+// with the Turn 3-6 esses and the 16-18 sequence resolving as separate turns
+// for the first time.
+//
+// Fifteen is still not twenty, and the remaining five will not come from
+// tuning: pushing `prominence` or `minGap` lower only re-splits corners the
+// sweep already showed are one turn counted twice (the 78%/79% pair). What is
+// left is a genuine information limit, and the curated corner registry in
+// Phase 3 is what closes it.
 //
 // CONSEQUENCE FOR THE UI: this numbering is OURS, derived from one lap, and it
 // is not the circuit's official numbering. It must be labelled as such —
@@ -133,26 +138,31 @@ export function speedDips(pts, { prominence, minGap }) {
   return out.map((k) => k.i)
 }
 
-// Defaults chosen by sweeping the real COTA export, not guessed. Across every
-// combination tried, detection plateaus at TWELVE corners — curvature alone
-// tops out at 13, speed dips alone at 12, and the union at 12. See the
-// resolution note in the module header for why.
+// Defaults RE-SWEPT against the importance-weighted trace, not guessed and not
+// carried over: every one of these moved when lib/resample.js changed what a
+// sample index is worth. The winning combination finds 15 corners on the real
+// COTA fastest lap; the next setting up (minGap 3) reports 16 by splitting one
+// turn at 78%/79% into two, which is a worse answer with a bigger number.
 export const DEFAULTS = {
-  threshold: 12,
+  // Menger curvature, in normalised-GPS units. Far higher than the old 12
+  // because corner samples are now ~5 m apart rather than ~13 m: the same turn
+  // resolves as a much tighter arc, so the bar to clear rises with it.
+  threshold: 40,
   // A corner must persist over more than one sample: isolated spikes are GPS
   // noise, not turns.
   minRun: 2,
   // Runs closer than this are one corner — what merges an entry and exit
   // phase, and what makes a multi-apex complex read as one.
   mergeGap: 3,
-  // Half-width of the curvature window, in samples. The trace is ~400 points
-  // per lap (~13 m at COTA), so a span of 3 smooths a 40 m window and erases
-  // tighter turns — this is the knob that decides resolution.
-  span: 2,
+  // Half-width of the curvature window, in samples. Now 1 (a 3-point window),
+  // because in a corner that spans ~10-20 m rather than the ~55 m a span of 2
+  // covered under uniform sampling. This is the knob that decides resolution.
+  span: 1,
   // Speed drop, in km/h, that marks a corner geometry alone would miss.
-  prominence: 6,
-  // Two detections closer than this are the same corner.
-  minGap: 5,
+  prominence: 3,
+  // Two detections closer than this are the same corner. In samples, so it
+  // tightened along with the spacing.
+  minGap: 4,
 }
 
 /**

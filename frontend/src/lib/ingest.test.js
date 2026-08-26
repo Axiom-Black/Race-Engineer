@@ -10,6 +10,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { parseSessionFiles } from './ingest'
+import { detectCorners } from './corners'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '../../../fixtures')
 const ldBytes = new Uint8Array(readFileSync(join(FIXTURES, 'cota_gte_sanitized.ld')));
@@ -69,6 +70,40 @@ describe('parseSessionFiles', () => {
     expect(s.laps[0].lapTimeS).toBeNull()
     expect(s.laps[s.laps.length - 1].valid).toBe(false)
     expect(s.laps[s.laps.length - 1].lapTimeS).toBeNull()
+  })
+
+  it('spends its point budget on corners, not evenly on distance', async () => {
+    // The bar this defends: 400 points spread evenly gave ~13.5 m spacing
+    // everywhere at COTA, and corner detection plateaued at twelve corners on
+    // a twenty-corner circuit. Redistributing the SAME budget by importance
+    // (lib/resample.js) buys the resolution back without buying storage.
+    const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
+    const fastest = s.trace.laps.find((l) => l.lap === s.fastestLapNo)
+    expect(fastest).toBeDefined()
+
+    const lengthM = s.lengthKm * 1000
+    const gaps = fastest.pts
+      .slice(1)
+      .map((p, i) => (p.d - fastest.pts[i].d) * lengthM)
+      .sort((a, b) => a - b)
+    const min = gaps[0]
+    const max = gaps[gaps.length - 1]
+
+    // Measured on the real export: ~4.9 m at the tightest, ~35 m down the
+    // straights. Asserting the SPREAD rather than the numbers — the point is
+    // that spacing varies by several times, which uniform sampling cannot do.
+    expect(max / min).toBeGreaterThan(3)
+    expect(min).toBeLessThan(8)
+    // ...and no gap so long the map visibly cuts a corner.
+    expect(max).toBeLessThan(60)
+  })
+
+  it('finds more corners on the real lap than uniform sampling could', async () => {
+    const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
+    const fastest = s.trace.laps.find((l) => l.lap === s.fastestLapNo)
+    // Twelve was the ceiling under uniform spacing, across every threshold and
+    // span swept. Anything at or below it means the redistribution regressed.
+    expect(detectCorners(fastest.pts).length).toBeGreaterThan(12)
   })
 
   it('resamples each lap to ~400 points ALONG TRACK DISTANCE, not time', async () => {

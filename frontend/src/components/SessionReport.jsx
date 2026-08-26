@@ -20,6 +20,7 @@ import ChannelsTab from './ChannelsTab'
 import InstrumentCluster from './InstrumentCluster'
 import CircuitMap from './CircuitMap'
 import { advanceCursor } from '../lib/gauges'
+import { distanceAxis, xAt, indexAtFraction } from '../lib/traceAxis'
 import { buildComparison } from '../lib/sessionCompare'
 import { personalBest, thermalPeaks, tyreCompound, circuitHistory } from '../lib/sessionSummary'
 
@@ -142,15 +143,23 @@ function Plot({ pts, refPts, pick, color, label, unit, cursor, onScrub, height =
   let hi = ext.max
   if (zero) lo = Math.min(0, lo)
   if (hi === lo) hi = lo + 1
-  const x = (i) => (i / (pts.length - 1)) * W
+  // Against DISTANCE, not index — points are no longer evenly spaced (see
+  // lib/resample.js), so index would stretch corners and compress straights.
+  const axis = distanceAxis(pts)
+  const x = (i) => xAt(axis, i, W)
   const y = (v) => H - 6 - ((v - lo) / (hi - lo)) * (H - 12)
-  const toPath = (arr) =>
+  const toPath = (arr, ax) =>
     arr
-      .map((v, i) => (v == null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
+      .map((v, i) => (v == null ? null : `${xAt(ax, i, W).toFixed(1)},${y(v).toFixed(1)}`))
       .filter(Boolean)
       .join(' ')
-  const d = toPath(vals)
-  const dRef = refVals ? toPath(refVals) : null
+  const d = toPath(vals, axis)
+  // The reference lap is drawn against ITS OWN distance axis. Both laps used to
+  // be evenly spaced, so sharing an index was the same as sharing a distance;
+  // with importance-weighted sampling the two laps spend their points
+  // differently and an index-aligned overlay would slide the reference's
+  // braking points off the selected lap's by tens of metres.
+  const dRef = refVals ? toPath(refVals, distanceAxis(refPts)) : null
   const cx = x(cursor)
   const cVal = vals[cursor]
   return (
@@ -163,7 +172,7 @@ function Plot({ pts, refPts, pick, color, label, unit, cursor, onScrub, height =
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect()
           const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
-          onScrub(Math.round(frac * (pts.length - 1)))
+          onScrub(indexAtFraction(axis, frac))
         }}
       >
         {zero && lo < 0 && (
@@ -186,7 +195,7 @@ function Plot({ pts, refPts, pick, color, label, unit, cursor, onScrub, height =
  * zero line (green) the selected lap is ahead of the reference, above it
  * (red) it is behind.
  */
-function DeltaPlot({ delta, cursor, onScrub, refLabel }) {
+function DeltaPlot({ delta, axis, cursor, onScrub, refLabel }) {
   const W = 1000
   const H = 104
   const ext = extentOf([delta])
@@ -194,7 +203,7 @@ function DeltaPlot({ delta, cursor, onScrub, refLabel }) {
   const mag = Math.max(Math.abs(ext.min), Math.abs(ext.max), 0.05)
   const lo = -mag
   const hi = mag
-  const x = (i) => (i / (delta.length - 1)) * W
+  const x = (i) => xAt(axis, i, W)
   const y = (v) => H - 6 - ((v - lo) / (hi - lo)) * (H - 12)
   const final = delta[delta.length - 1]
   const cVal = delta[cursor]
@@ -215,7 +224,7 @@ function DeltaPlot({ delta, cursor, onScrub, refLabel }) {
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect()
           const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
-          onScrub(Math.round(frac * (delta.length - 1)))
+          onScrub(indexAtFraction(axis, frac))
         }}
       >
         <line x1="0" y1={y(0)} x2={W} y2={y(0)} stroke={C.line} strokeWidth="1" vectorEffect="non-scaling-stroke" />
@@ -887,7 +896,7 @@ function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor, lapSe
       />
 
       <InstrumentCluster point={pts[Math.min(cursor, pts.length - 1)]} />
-      {delta && <DeltaPlot delta={delta} cursor={cursor} onScrub={setCursor} refLabel={refLabel} />}
+      {delta && <DeltaPlot delta={delta} axis={distanceAxis(pts)} cursor={cursor} onScrub={setCursor} refLabel={refLabel} />}
       {refPts && !delta && (
         <p style={{ fontSize: 11, color: C.warn, marginTop: 0, marginBottom: 12 }}>
           Traces overlaid, but no Δ-time trace: one of these laps has no recorded lap time.

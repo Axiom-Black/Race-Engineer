@@ -145,13 +145,15 @@ describe('detectCorners', () => {
   })
 
   it('treats a constant-radius circle as ONE corner, which it is', () => {
-    // Radius 0.05 -> curvature 20, comfortably above threshold, and continuous.
-    expect(detectCorners(circle(300, 0.05))).toHaveLength(1)
+    // Radius 0.02 -> curvature 50, comfortably above the 40 threshold, and
+    // continuous. The radius tightened when the threshold rose: corner samples
+    // are ~5 m apart now, so a real turn presents as a much tighter arc.
+    expect(detectCorners(circle(300, 0.02))).toHaveLength(1)
   })
 
   it('puts the apex at the SLOWEST point, not the tightest', () => {
     // The curvature peak usually sits before what a driver calls the apex.
-    const pts = circle(300, 0.05, 120)
+    const pts = circle(300, 0.02, 120)
     for (let i = 40; i <= 44; i++) pts[i] = { ...pts[i], s: 60 }
     const corner = detectCorners(pts).find((c) => c.startIdx <= 42 && c.endIdx >= 42)
     expect(corner).toBeTruthy()
@@ -159,14 +161,14 @@ describe('detectCorners', () => {
   })
 
   it('reports gear at the apex alongside the speed', () => {
-    const pts = circle(300, 0.05, 120)
+    const pts = circle(300, 0.02, 120)
     for (let i = 40; i <= 44; i++) pts[i] = { ...pts[i], s: 60, g: 2 }
     const corner = detectCorners(pts).find((c) => c.apexIdx >= 40 && c.apexIdx <= 44)
     expect(corner.gearAtApex).toBe(2)
   })
 
   it('reports null rather than 0 when the apex has no reading', () => {
-    const pts = circle(300, 0.05).map((p) => ({ ...p, s: null, g: null }))
+    const pts = circle(300, 0.02).map((p) => ({ ...p, s: null, g: null }))
     const corners = detectCorners(pts)
     if (corners.length) {
       expect(corners[0].minSpeed).toBeNull()
@@ -234,6 +236,6 @@ describe('relaxLabels', () => {
 
 describe('defaults', () => {
   it('are the swept values, not round numbers someone liked', () => {
-    expect(DEFAULTS).toMatchObject({ threshold: 12, minRun: 2, mergeGap: 3, prominence: 6, minGap: 5 })
+    expect(DEFAULTS).toMatchObject({ threshold: 40, minRun: 2, mergeGap: 3, prominence: 3, minGap: 4 })
   })
 })
