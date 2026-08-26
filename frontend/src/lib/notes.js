@@ -220,6 +220,23 @@ export function conditionLabel({ car, ambientC, trackC } = {}) {
   return parts.join(' · ')
 }
 
+/**
+ * A one-line description of where a note is, in a driver's terms.
+ *
+ * Falls back to a PERCENTAGE rather than a fabricated kilometre figure when the
+ * lap length is unknown — without the length there is no distance to quote, and
+ * quoting one would be inventing a measurement.
+ */
+export function anchorLabel(note, lengthKm) {
+  if (note?.corner_label) return note.corner_label
+  const mid = anchorMid({ dStart: note?.d_start, dEnd: note?.d_end })
+  if (mid === null) return 'this lap'
+  const km = strictNum(lengthKm)
+  return Number.isFinite(km) && km > 0
+    ? `${(mid * km).toFixed(2)} km`
+    : `${(mid * 100).toFixed(1)}% of lap`
+}
+
 /** Trim and cap note text; returns null for anything with no content. */
 export function normaliseBody(text) {
   if (typeof text !== 'string') return null

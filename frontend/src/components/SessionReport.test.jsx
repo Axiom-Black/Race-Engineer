@@ -20,6 +20,20 @@ vi.mock('../lib/sessions', () => ({
   getSessionTrace: (...a) => getSessionTrace(...a),
 }))
 
+// Track Notes reach Supabase, so the query layer is mocked here the same way
+// lib/sessions is. Note the boundary this keeps: lib/notes.js — where every
+// anchor, grouping and relevance RULE lives — needs no mock at all and is
+// tested against no database in notes.test.js. Only the edge is stubbed.
+const listTrackNotes = vi.fn(async () => [])
+const saveNote = vi.fn(async (row) => ({ id: 'new', ...row }))
+const deleteNote = vi.fn(async () => {})
+
+vi.mock('../lib/trackNotes', () => ({
+  listTrackNotes: (...a) => listTrackNotes(...a),
+  saveNote: (...a) => saveNote(...a),
+  deleteNote: (...a) => deleteNote(...a),
+}))
+
 const SessionReport = (await import('./SessionReport.jsx')).default
 
 const chans = (over = {}) => [

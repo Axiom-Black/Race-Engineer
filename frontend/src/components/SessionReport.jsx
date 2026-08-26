@@ -21,6 +21,9 @@ import InstrumentCluster from './InstrumentCluster'
 import CircuitMap from './CircuitMap'
 import MapInstruments from './MapInstruments'
 import { resolveCorners, cornerAt } from '../lib/corners'
+import { groupByProximity } from '../lib/notes'
+import { useTrackNotes } from '../lib/useTrackNotes'
+import TrackNotes from './TrackNotes'
 import { distanceAxis, xAt, nearestIndex } from '../lib/traceAxis'
 import { lapTimeAxis, advanceTime, indexAtTime, timeAtIndex } from '../lib/replay'
 import { buildComparison } from '../lib/sessionCompare'
@@ -434,7 +437,7 @@ export default function SessionReport({ sessionId, sessions = [], onBack }) {
         />
       )}
       {tab === 'Track Map' && trace && (
-        <TrackMapTab pts={pts} persistedCorners={traceLap?.corners} aspect={trace.aspect} cursor={cursor} setCursor={setCursor} lapSeconds={lapSeconds} lengthKm={session?.length_km} />
+        <TrackMapTab pts={pts} persistedCorners={traceLap?.corners} aspect={trace.aspect} cursor={cursor} setCursor={setCursor} lapSeconds={lapSeconds} lengthKm={session?.length_km} session={session} />
       )}
     </div>
   )
@@ -943,14 +946,31 @@ function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor, lapSe
 }
 
 // ── Track Map ─────────────────────────────────────────────────────
-function TrackMapTab({ pts, persistedCorners, aspect, cursor, setCursor, lapSeconds, lengthKm }) {
+function TrackMapTab({ pts, persistedCorners, aspect, cursor, setCursor, lapSeconds, lengthKm, session }) {
   const replay = useReplay(pts, lapSeconds, setCursor)
+  // Keyed on the TRACK, not on this session — the master accumulates across
+  // every session ever driven here and survives the deletion of any of them.
+  const { notes, loading: notesLoading, error: notesError, busy: notesBusy, save, remove } =
+    useTrackNotes(session?.venue)
   // Resolved once here and shared with the map AND the panel, so the badge the
   // map lights up and the corner the panel names can never disagree. The
   // persisted set — detected at ingest from full-rate lateral G — is preferred;
   // sessions uploaded before that existed fall back to the trace detector.
   const corners = useMemo(() => resolveCorners(persistedCorners, pts), [persistedCorners, pts])
   const active = cornerAt(corners, cursor)
+  const axis = useMemo(() => distanceAxis(pts), [pts])
+  // One mark per stack, placed by resolving the note's distance against the
+  // distance axis. NOT `i / (n - 1)`: the trace's 400 points have been spent by
+  // importance since 26 Aug, so `d` is the only position a point has.
+  const noteMarks = useMemo(
+    () =>
+      groupByProximity(notes).map((g) => ({
+        key: `${g.anchorMid}`,
+        idx: nearestIndex(axis, g.anchorMid),
+        count: g.notes.length,
+      })),
+    [notes, axis],
+  )
   if (!pts.length) return <div style={{ color: C.dim, padding: 20 }}>No trace for this lap.</div>
   return (
     <Card style={{ padding: '16px 18px' }}>
@@ -975,11 +995,25 @@ function TrackMapTab({ pts, persistedCorners, aspect, cursor, setCursor, lapSeco
         pts={pts}
         corners={corners}
         activeCorner={active?.n}
+        noteMarks={noteMarks}
         aspect={aspect}
         cursor={cursor}
         onScrub={(i) => { replay.setPlaying(false); replay.seek(i) }}
       />
       <MapInstruments point={pts[Math.min(cursor, pts.length - 1)]} corner={active} lengthKm={lengthKm} />
+      <TrackNotes
+        notes={notes}
+        session={session}
+        corners={corners}
+        activeCorner={active}
+        cursorD={axis[Math.min(cursor, axis.length - 1)]}
+        lengthKm={lengthKm}
+        loading={notesLoading}
+        error={notesError}
+        busy={notesBusy}
+        onSave={({ anchor, body, cornerLabel }) => save({ session, anchor, body, cornerLabel })}
+        onDelete={remove}
+      />
       <div style={{ marginTop: 4, fontSize: 10, color: C.dim }}>
         Corner numbering is derived from this lap and is not the circuit's official numbering ·
         GPS is game-world (relative positions exact)
