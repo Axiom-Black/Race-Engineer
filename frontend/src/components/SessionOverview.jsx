@@ -14,6 +14,7 @@ import { C, font } from '../theme'
 import { formatSessionDate } from '../lib/sessionTime'
 import { headlineStats, sessionSubtitle, STAT } from '../lib/sessionOverview'
 import { reconcile } from '../lib/lapReconciliation'
+import SessionRuns from './SessionRuns'
 
 // A dash with no explanation is indistinguishable from a bug. Every non-OK
 // stat says which channel it came from and why it has no number — the
@@ -153,6 +154,12 @@ export default function SessionOverview({ session, laps, onOpenReport, onBack })
           ))}
         </div>
       )}
+
+      {/* The v12 prototype's SESSION DATA DISPLAY: what a driver quotes when
+          asked how the run went. It sits above the report link because a run
+          average answers "how did that go?" and the four-tab report answers
+          "why", which is the next question, not the first. */}
+      <SessionRuns session={session} laps={laps} />
 
       <div
         style={{

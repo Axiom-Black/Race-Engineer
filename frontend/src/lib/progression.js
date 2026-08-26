@@ -3,8 +3,22 @@
 // Kept out of ProgressionTab.jsx so the maths is testable without dragging in
 // the Supabase client (importing a component would transitively load
 // lib/supabase.js, which throws by design when env vars are absent).
-export const ALL_CARS = '__all__'
+/** Sentinel for "no filter applied" on any of the three facet filters. */
+export const ALL = '__all__'
 
+/**
+ * Tier thresholds, as a PERCENTAGE of the driver's best lap for that combo.
+ *
+ * Percent rather than seconds, because seconds are not comparable between
+ * circuits: half a second off at Monaco is a different driver from half a
+ * second off at Le Mans, and one threshold cannot mean both. A percentage of
+ * the lap says the same thing everywhere.
+ *
+ * The numbers are unchanged from the prototype (≤0.5 / ≤1.5 / ≤3.0), and the
+ * unit change is why lib/prefs.js persists them under a new key — reading a
+ * stored "0.5 seconds" back as "0.5 percent" would silently reinterpret a
+ * driver's own setting.
+ */
 export const DEFAULT_TIERS = Object.freeze({
   elite: 0.5,
   competitive: 1.5,
@@ -49,7 +63,13 @@ export function groupCombos(sessions) {
     if (s.fastest_lap_s == null) continue
     const key = `${s.venue}|${s.car}|${s.session_type}`
     if (!map.has(key))
-      map.set(key, { venue: s.venue, car: s.car, sessionType: s.session_type, runs: [] })
+      map.set(key, {
+        venue: s.venue,
+        car: s.car,
+        carClass: s.car_class ?? null,
+        sessionType: s.session_type,
+        runs: [],
+      })
     map.get(key).runs.push(s)
   }
   return Array.from(map.values()).map((c) => {
@@ -59,21 +79,70 @@ export function groupCombos(sessions) {
     const latest = bests[bests.length - 1]
     const gap = Number((latest - bestEver).toFixed(4))
     const trend = bests.length > 1 ? bests[bests.length - 1] - bests[bests.length - 2] : null
-    return { ...c, bests, bestEver, gap, trend, count: runs.length }
+    // Every run's gap to the personal best, as a percentage — the series the
+    // sparkline draws and the number the tier is read from.
+    const series = bests.map((b) => pctOff(b, bestEver))
+    return {
+      ...c,
+      bests,
+      bestEver,
+      gap,
+      gapPct: series[series.length - 1],
+      series,
+      direction: trendDirection(series),
+      trend,
+      count: runs.length,
+    }
   })
 }
 
-/** Distinct cars across the rolled-up combos, alphabetical. */
-export function carsOf(combos) {
-  return Array.from(new Set(combos.map((c) => c.car).filter(Boolean))).sort()
-}
-
-export function filterByCar(combos, car) {
-  return car === ALL_CARS ? combos : combos.filter((c) => c.car === car)
+/** How far `lap` is off `best`, as a percentage of `best`. */
+export function pctOff(lap, best) {
+  if (!Number.isFinite(lap) || !Number.isFinite(best) || best <= 0) return null
+  return Number((((lap - best) / best) * 100).toFixed(3))
 }
 
 /**
- * Tier name for a gap. Colours are resolved by the caller's theme.
+ * Which way a gap series is going, over its last few entries.
+ *
+ * Deliberately not "latest vs. previous": one slow session in an otherwise
+ * closing gap is a bad day, not a trend, and labelling it a regression would
+ * tell a driver to change something that is working. Null until there is
+ * enough history to have a direction at all.
+ */
+export function trendDirection(series, window = 3) {
+  const vals = (Array.isArray(series) ? series : []).filter((v) => Number.isFinite(v))
+  if (vals.length < 2) return null
+  const recent = vals.slice(-Math.max(2, window))
+  const change = recent[recent.length - 1] - recent[0]
+  if (Math.abs(change) < 0.05) return 'holding'
+  return change < 0 ? 'improving' : 'slipping'
+}
+
+/** Distinct values of one combo field, alphabetical, blanks dropped. */
+export function optionsOf(combos, field) {
+  return Array.from(new Set((combos ?? []).map((c) => c[field]).filter(Boolean))).sort()
+}
+
+/**
+ * Narrow the combos by any subset of the three facets.
+ *
+ * A filter naming a value nothing carries yields an empty list rather than
+ * quietly passing everything through — an empty result is the honest answer,
+ * and the view says so.
+ */
+export function applyFilters(combos, filters = {}) {
+  const match = (value, want) => want === undefined || want === ALL || value === want
+  return (combos ?? []).filter(
+    (c) =>
+      match(c.venue, filters.venue) &&
+      match(c.carClass, filters.carClass) &&
+      match(c.sessionType, filters.sessionType),
+  )
+}
+
+/**
+ * Tier name for a gap PERCENTAGE. Colours are resolved by the caller's theme.
  *
  * `runCount` is not optional decoration. The gap is measured against the
  * driver's OWN best, so a combo with a single session has a gap of exactly
@@ -81,8 +150,9 @@ export function filterByCar(combos, car) {
  * compared against. Every first upload would come back top-tier. A tier needs
  * at least two runs before it is reporting anything at all.
  */
-export function tierNameFor(gap, tiers, runCount = 2) {
-  if (gap == null) return 'UNRANKED'
+export function tierNameFor(gapPct, tiers, runCount = 2) {
+  const gap = gapPct
+  if (gap == null || !Number.isFinite(gap)) return 'UNRANKED'
   if (runCount < 2) return 'UNRANKED'
   if (gap <= tiers.elite) return 'ELITE'
   if (gap <= tiers.competitive) return 'COMPETITIVE'

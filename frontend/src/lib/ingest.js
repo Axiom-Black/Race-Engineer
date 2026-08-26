@@ -20,6 +20,8 @@ import { parseLd, decodeAll, lapBoundaries } from './motec/ld'
 import { parseLdx, setupSummary } from './motec/ldx'
 import { parseSvm, vehicleInfo, energyScheme } from './motec/svm'
 import { domainOf } from './motec/domain'
+import { importanceWeights, allocateByWeight } from './resample'
+import { detectCornersFromG, lateralCapability, smooth, DETECT_DEFAULTS } from './cornerDetect'
 
 const TARGET_POINTS_PER_LAP = 400
 const WHEEL_CHANNELS = ['FL', 'FR', 'RL', 'RR']
@@ -138,26 +140,36 @@ function cumulativeDistance(speedSamples, rateHz) {
   const cum = new Array(speedSamples.length)
   let acc = 0
   for (let i = 0; i < speedSamples.length; i++) {
-    acc += (speedSamples[i] / 3.6) * dt // km/h -> m/s
+    // Distance BEFORE this sample, so cum[0] is 0 and cum[i] is genuinely
+    // "how far the car had travelled when sample i was taken". Accumulating
+    // first put the first sample's own interval at index 0, which made the
+    // lap's opening point sit 0.7 m down the road — invisible while `d` was
+    // derived from the output index, and a lie the moment `d` came from here.
     cum[i] = acc
+    acc += (speedSamples[i] / 3.6) * dt // km/h -> m/s
   }
   return cum
 }
 
 /**
- * Resample one lap to ~400 points evenly spaced by normalized track
- * distance (d: 0 -> 1), matching the prototype SessionReport `pts` shape.
+ * Resample one lap to at most TARGET_POINTS_PER_LAP points, spaced by
+ * IMPORTANCE-WEIGHTED track distance (see lib/resample.js): dense through
+ * corners and braking zones, sparse down straights, for the same stored budget.
  * GPS x/y are normalized against the SESSION-WIDE bounding box (passed in)
  * so every lap's points share one consistent map projection.
+ *
+ * `d` is each point's TRUE distance fraction (0 -> 1) and is no longer
+ * inferable from its index — consumers must plot against `d`, never against
+ * `i / (n - 1)`.
  */
-function buildLapPoints(ld, startS, endS, gpsBounds) {
+function buildLapPoints(ld, startS, endS, gpsBounds, capability) {
   const master = ld.channels['Ground Speed']
-  if (!master || !master.samples.length) return { pts: [], distanceM: 0 }
+  if (!master || !master.samples.length) return { pts: [], distanceM: 0, corners: [] }
 
   const rate = master.sampleRateHz || 1
   const i0 = Math.floor(startS * rate)
   const i1 = endS == null ? master.samples.length : Math.min(master.samples.length, Math.floor(endS * rate))
-  if (i1 <= i0) return { pts: [], distanceM: 0 }
+  if (i1 <= i0) return { pts: [], distanceM: 0, corners: [] }
 
   const speedSlice = master.samples.slice(i0, i1)
   const cumDist = cumulativeDistance(speedSlice, rate)
@@ -168,15 +180,20 @@ function buildLapPoints(ld, startS, endS, gpsBounds) {
   const lonSpan = lonMax - lonMin || 1
   const latSpan = latMax - latMin || 1
 
+  // Where the points go. Lateral G is sampled onto the master clock first so
+  // the weighting sees one aligned series — G Force Lat runs at its own rate,
+  // and an unaligned weight field would shift every corner's density.
+  const gLatCh = ld.channels['G Force Lat']
+  const gLat =
+    gLatCh && !gLatCh.allZero
+      ? speedSlice.map((_, k) => nearestSample(gLatCh, (i0 + k) / rate))
+      : undefined
+  const weights = importanceWeights({ speeds: speedSlice, gLat, rateHz: rate })
+  const indices =
+    totalDist > 0 ? allocateByWeight(cumDist, weights, TARGET_POINTS_PER_LAP) : [0]
+
   const pts = []
-  let searchFrom = 0
-  const n = totalDist > 0 ? TARGET_POINTS_PER_LAP : 1
-  for (let k = 0; k < n; k++) {
-    const targetDist = (k / Math.max(1, n - 1)) * totalDist
-    // cumDist is monotonically non-decreasing; walk forward from the last
-    // match instead of re-scanning from 0 each time.
-    while (searchFrom < cumDist.length - 1 && cumDist[searchFrom] < targetDist) searchFrom++
-    const localIdx = searchFrom
+  for (const localIdx of indices) {
     const globalIdx = i0 + localIdx
     const t = globalIdx / rate
 
@@ -200,10 +217,86 @@ function buildLapPoints(ld, startS, endS, gpsBounds) {
       glo: round2(nearestSample(ld.channels['G Force Long'], t)),
       r: nearestSample(ld.channels['Engine RPM'], t),
       sl,
-      d: Number((k / Math.max(1, n - 1)).toFixed(4)),
+      d: totalDist > 0 ? Number((cumDist[localIdx] / totalDist).toFixed(4)) : 0,
     })
   }
-  return { pts, distanceM: totalDist }
+  const distanceAt = (seconds) => {
+    if (!(totalDist > 0)) return 0
+    const k = Math.min(cumDist.length - 1, Math.max(0, Math.round(seconds * rate) - i0))
+    return Number((cumDist[k] / totalDist).toFixed(4))
+  }
+
+  return {
+    pts,
+    distanceM: totalDist,
+    corners: buildLapCorners(ld, startS, endS, capability, distanceAt),
+  }
+}
+
+/**
+ * Corners for one lap, detected at FULL RATE and reduced to distance
+ * fractions.
+ *
+ * Detection runs on `G Force Lat` at its own 25 Hz — 8.5x the persisted
+ * trace's resolution — because a corner is the car carrying lateral load, not
+ * a shape in a downsampled polyline (lib/cornerDetect.js has the whole
+ * argument). The result is stored as `d` fractions rather than trace indices
+ * so it survives any future change to how the trace is resampled: the map
+ * inverts `d` back to an index at render time.
+ *
+ * The apex is the SLOWEST point in the corner, not the peak-load one — that is
+ * what a driver means by the apex, and the load peak usually sits before it.
+ */
+function buildLapCorners(ld, startS, endS, capability, distanceAt) {
+  const gLatCh = ld.channels['G Force Lat']
+  // No lateral-G channel, or an empty one: the map falls back to detecting
+  // from the trace's geometry. Returning [] rather than guessing is what makes
+  // that fallback reachable instead of silently shadowed by a wrong answer.
+  if (!gLatCh || gLatCh.allZero || !gLatCh.samples.length) return []
+
+  const rate = gLatCh.sampleRateHz || 1
+  const g0 = Math.floor(startS * rate)
+  const g1 = endS == null ? gLatCh.samples.length : Math.min(gLatCh.samples.length, Math.floor(endS * rate))
+  if (g1 <= g0) return []
+
+  const found = detectCornersFromG(gLatCh.samples.slice(g0, g1), rate, { capability })
+  const speedCh = ld.channels['Ground Speed']
+
+  return found.map((c, i) => {
+    const startSec = startS + c.startIdx / rate
+    const endSec = startS + c.endIdx / rate
+
+    // Slowest point in the window, on Ground Speed's own clock.
+    let apexSec = startSec
+    let minSpeed = null
+    const sRate = speedCh?.sampleRateHz || 1
+    for (let k = Math.round(startSec * sRate); k <= Math.round(endSec * sRate); k++) {
+      const v = speedCh?.samples?.[k]
+      if (v == null) continue
+      if (minSpeed === null || v < minSpeed) {
+        minSpeed = v
+        apexSec = k / sRate
+      }
+    }
+
+    const gear = nearestSample(ld.channels['Gear'], apexSec)
+    // The apex is a fact; the boundary is an estimate from a DIFFERENT channel
+    // at a different rate — lateral G at 25 Hz against speed at 10 Hz — so the
+    // two can disagree by a sample. When they do, the boundary yields: a corner
+    // that starts after its own apex is a contradiction on the map, and the
+    // window is the softer of the two claims.
+    const dApex = distanceAt(apexSec)
+    return {
+      n: i + 1,
+      dStart: Math.min(distanceAt(startSec), dApex),
+      d: dApex,
+      dEnd: Math.max(distanceAt(endSec), dApex),
+      dir: c.direction,
+      peakG: c.peakG,
+      minSpeed: minSpeed == null ? null : Math.round(minSpeed),
+      gear: gear == null ? null : Math.round(gear),
+    }
+  })
 }
 
 function round1(v) {
@@ -211,6 +304,17 @@ function round1(v) {
 }
 function round2(v) {
   return v == null ? null : Number(v.toFixed(2))
+}
+
+/**
+ * The car's lateral capability across the whole session — the yardstick every
+ * corner-detection threshold is a fraction of (lib/cornerDetect.js).
+ */
+function sessionLateralCapability(ld) {
+  const ch = ld.channels['G Force Lat']
+  if (!ch || ch.allZero || !ch.samples.length) return 0
+  const radius = Math.max(1, Math.round(DETECT_DEFAULTS.smoothS * (ch.sampleRateHz || 1)))
+  return lateralCapability(smooth(ch.samples, radius))
 }
 
 /** Session-wide GPS bounding box, so every lap normalizes against one map. */
@@ -256,6 +360,11 @@ export async function parseSessionFiles({ ldBytes, ldxText, svmText }) {
   const { car, carClass, ruleset } = vehicleInfo(svm)
   const gpsBounds = sessionGpsBounds(ld)
   const bounds = lapBoundaries(ld)
+  // SESSION-wide, not per lap. Lateral grip belongs to the car and the
+  // circuit; a lap where the driver never pushed has a low percentile of its
+  // own, and normalising it against itself promoted 0.19 G steering
+  // corrections into corners on the fixture's trailing fragment.
+  const capability = sessionLateralCapability(ld)
 
   const laps = []
   const tracePts = []
@@ -272,7 +381,7 @@ export async function parseSessionFiles({ ldBytes, ldxText, svmText }) {
     const kind = kinds[i]
     const lapTimeS = kind === 'timed' ? durationS : null
 
-    const { pts, distanceM } = buildLapPoints(ld, b.startS, endS, gpsBounds)
+    const { pts, distanceM, corners } = buildLapPoints(ld, b.startS, endS, gpsBounds, capability)
     // Circuit length comes from complete laps only — an out-lap includes the
     // pit exit and a partial lap is short, so neither measures the track.
     if (kind === 'timed') maxDistanceM = Math.max(maxDistanceM, distanceM)
@@ -287,7 +396,7 @@ export async function parseSessionFiles({ ldBytes, ldxText, svmText }) {
       // without a schema migration.
       summary: { ...buildLapChannelSummary(ld, b.startS, endS), kind, durationS },
     })
-    tracePts.push({ lap: b.lap, time: lapTimeS, pts })
+    tracePts.push({ lap: b.lap, time: lapTimeS, pts, corners })
   })
 
   const lons = ld.channels['GPS Longitude']?.samples ?? []

@@ -217,12 +217,98 @@ go red, restore. *Codex I.1, IV.2.*
 
 ---
 
+### A16 · Spend a fixed budget where the signal is, not evenly
+
+A downsampled series with a storage cap is not a resolution problem, it is an
+**allocation** problem, and the two have very different costs. ByteCraft's trace
+spread 400 points per lap evenly by distance — ~13.5 m *everywhere* at COTA,
+identical down a 1.2 km straight and through a four-direction-change ess — and
+corner detection plateaued at 12 corners on a twenty-corner circuit. The obvious
+fix (more points) triples a row that lives in Postgres on a free tier. The
+cheaper fix is to **weight each sample by how much is happening there,
+integrate that weight against the axis, and place output points at equal
+intervals of the weighted arc length** — inverse-CDF sampling of an importance
+density. Corners went to ~5 m spacing and straights to ~35 m for the *same* 400
+points, and detection reached 15. Smooth the weight field first, or the density
+steps visibly at the corner entry.
+
+**Three consequences that are easy to miss and expensive to find later:**
+
+1. **Any downstream index-as-proxy-for-position breaks.** Every plot drawing at
+   `i / (n - 1)` was about to stretch corners and compress straights. Anything
+   that inferred position from an index now has to read the real axis, and the
+   inverse (pointer → index) becomes a search, not a multiply.
+2. **Time-based animation must stop counting indices.** A replay stepping the
+   cursor at a constant index rate crawls through every corner and fires down
+   every straight once corners hold 3–4× the samples — the exact inverse of the
+   recorded motion. Drive it from a real time axis and density stops mattering.
+3. **Every threshold tuned against the old spacing is now wrong.** All six
+   corner-detection defaults moved, because the weighting changed what one
+   sample index is worth. Re-sweep them; do not port them.
+
+**And know when to stop.** One setting past the chosen one reported *sixteen*
+corners by splitting a single turn at 78% and 79% into two. A bigger number from
+a worse answer is the failure mode of any tuning sweep with a metric that only
+counts. *Codex II.3, IV.1.*
+
+---
+
+### A17 · When resolution is the limit, check whether you are reading the wrong channel
+
+Two rounds of work went into raising corner detection on a downsampled GPS
+trace: 12 corners, then 15, on a circuit with 20. Both rounds were competent and
+both were solving the wrong problem — the ceiling was the trace's own
+resolution, so every improvement was a fight against a storage decision.
+
+The question that ended it was not "how do I estimate curvature better" but
+**"what does this measurement actually consist of, and is there a channel that
+carries it more directly?"** A corner is the car carrying lateral load. The
+export answers that at 25 Hz. It answers *position* at 5 Hz. Detection had been
+inferring load from twice-differentiated coarse positions when the load itself
+was sitting in the file at five times the rate.
+
+**The transferable checks, in order:**
+
+1. **Print the sample rate of every channel before designing anything on top of
+   them.** They are not the same, they are usually not documented, and the one
+   you assumed was best is often the worst. Here: GPS 5 Hz, speed 10 Hz,
+   lateral G 25 Hz, lap number 50 Hz.
+2. **Ask what the quantity physically IS**, then look for the channel that
+   measures it rather than one you can derive it from. Derivation costs
+   resolution and adds noise; both are avoidable if the sensor exists.
+3. **Compute derived facts where the data is widest, and persist the result.**
+   Detection moved to ingest, where the full-rate channels live, and the ~20
+   corners per lap are stored (3.5% of the trace). Downstream consumers never
+   see the resolution problem again — and the derived set is stored in
+   *distance fractions*, not indices, so the next resampler cannot invalidate it.
+
+**And the rule that decides whether a threshold travels:** express it as a
+dimensionless fraction of something the data itself supplies, never as an
+absolute in the measurement's own units. "0.25 G" is a firm corner in one car
+and a rounding error in another; "15% of this session's lateral capability" is
+the same statement everywhere. Same for time: seconds, never sample counts, or
+a 50 Hz exporter silently gets a different answer than a 25 Hz one. Both are
+pinned by tests — half the grip, and double the rate, must return the same
+corners.
+
+**Finally, on knowing a result is real rather than fitted.** The accepted
+setting is the middle of a plateau: two parameters each vary across a range
+without changing the answer, and the answer repeats on four independent laps.
+An isolated setting that hits the target number is a fit; a plateau that hits it
+is a measurement. Sweep wide enough to tell which one you have. *Codex II.1, II.3.*
+
+---
+
+---
+
 ## Part B — Session trail (newest first)
 
 Each entry: date · what shipped · the method insight worth carrying forward.
 
 | Date | Shipped | Method insight |
 | --- | --- | --- |
+| 26 Aug 2026 | Corner detection moved to ingest, on full-rate lateral G: 20/20 at COTA on every lap | **The ceiling was the channel, not the algorithm.** Full pattern in **A17**. The session's second lesson is about the difference between a target and a criterion: the ask was "get all 20", and it is trivially possible to reach 20 on one circuit by tuning until the count matches — which would have shipped a detector that fails on the first track nobody here has driven. What made the result trustworthy was refusing to accept any setting that was not (a) a *plateau*, with two parameters varying across a range without changing the answer, (b) *repeatable* on four independent laps, and (c) built from **dimensionless** thresholds, so a test can prove the same lap at half the grip and double the sample rate returns the same corners. The number and the confidence came from the same discipline. **Also worth carrying:** normalising a measurement per-lap felt natural and was wrong — the yardstick (lateral capability) belongs to the car and the circuit, so a lap where the driver never pushed re-scaled its own noise into signal. When you divide by something, ask what population that something should be measured over; "the thing in front of me" is a default, not an answer. |
+| 26 Aug 2026 | Readability programme closed: adaptive trace resolution, map transport + panel, Progression rework, Engineering Run readiness, run averages | **Fix the allocation before you buy more capacity — and then go and check what depended on the old shape.** Full pattern in **A16**. The session's other reusable lesson is about *labels on borrowed layouts*: three of these five views were ported from prototypes that show figures we cannot compute. The prototype's Progression column says GAP TO IDEAL against a curated reference-lap library that does not exist, and its Engineering Run fills metric boxes with "— TBD". Copying either verbatim ships a claim about data you do not have; deleting them loses the layout. **What worked was keeping the layout and changing the measurement to one that is real** — gap to *your own* best, and per-agent *input readiness* instead of per-agent output — then pinning the honest label with a test that asserts the prototype's wording is **absent**, so it cannot drift back in when the file is next touched. **The Engineering Run version is worth its own note:** the prototype's TBD boxes were honest and worth nothing. Asking "what is the one real question this surface can answer today?" produced a better feature than either shipping the fake or shipping nothing — LMU ships GTE cars with several channels permanently empty, so telling a driver *now* which agents their export can feed is payable, needs no backend, and is something only we can answer. **Also, again:** two real defects this session were found by rendering and looking, not by 500 tests — an off-by-one in cumulative distance that was invisible while a derived field masked it, and a reconciled/unreconciled lap-time contradiction on one screen (that one *was* caught, by an existing test whose assertion then got **stronger**, not relaxed, to accommodate the new view). |
 | 21 Aug 2026 | P0 — real multi-lap fixture + hashed golden-master format | **Diff the test fixture against the real input it came from; a fixture's limitations are usually undocumented and sometimes free to remove.** The fixture here had been "truncated for CI" — except the byte diff showed every channel record's sample-count field overwritten to 300 while all the telemetry bytes remained. It was still 849 KB. The truncation bought **no space at all** and cost the ability to test lap logic, which is how it hid two production bugs. Nobody had checked, because "truncated fixture" sounded like a reasonable trade. **Second, on golden masters that grow:** when a fixture gets 20× more data, embedding every value stops being viable (~6 MB of JSON). A **hash over the complete decoded array** is smaller than the original *and* asserts strictly more than keeping every Nth sample, which cannot see a regression between the samples it keeps — keep extremes and a few edge values in plain text so failures stay diagnosable. The risk is cross-language hash stability, so pin the canonical form narrowly (fixed decimals, normalise negative zero — Python prints `-0.000000` where JS prints `0.000000`) and **verify both runtimes agree before you rely on it**. **Third:** the masters had no committed generator, so "generated from exactly these bytes" was a promise for months. If a gate asserts provenance, the thing that produces it belongs in the repo and in CI. |
 | 21 Aug 2026 | Phase 2 opened (P1: plan-doc correction) + model-selection evaluation | **Check a cost advantage against your actual volume before treating it as a decision, and check the platform's runtime before treating a port as a lift.** Two premise failures caught in one session. First: a "~10× cheaper" model option was worth ~**$10/month** at three users, and the incumbent's per-run price was already 90% optimised using provider-specific caching and batch discounts — so the honest comparison was optimised-vs-optimised, not headline-vs-optimised. The habit: multiply the delta by real volume *first*; a 10× saving on a rounding error is a rounding error. Second: "move the FastAPI service to Supabase Edge Functions" is not possible as stated, because Edge Functions run Deno — a fact worth establishing before scoping, not after. **On documenting superseded plans:** correcting a strategic document inline plus a superseded-assumptions banner beats rewriting it — the original reasoning is evidence about how the decision was made, and a plan that silently matches present reality teaches nothing. **On bias:** the owner named their own cost bias up front, which is what made a blind A/B protocol an obvious requirement rather than an imposition. Ask for the bias; it tells you which safeguard the decision needs. |
 | 21 Aug 2026 | Phase 1 closed; retrospective written | **Write the retrospective at the close, and let it name the pattern across the misses rather than listing them.** Six defects reached `main` or production this phase, and tabulating them side by side showed one shape: *a check passed in a friendlier environment than the one that mattered* — a fixture too small, a container in UTC, a suite that tests source instead of the artifact, fixtures that were all internally self-consistent. That single sentence is more useful to the next build than six war stories. **The concrete habit it produces:** the two highest-yield debugging sessions of the phase were running the owner's real input through the pipeline, and querying the production database after an acceptance walkthrough — both found in minutes what the full suite had missed for days. Schedule both deliberately; neither is a test you can write. **Also:** a retro is the right place to hand forward the thing nobody will remember — here, that the committed fixture *structurally cannot* express the bugs it hid, which promoted a missing fixture from an unnoticed gap to the top backlog item. |

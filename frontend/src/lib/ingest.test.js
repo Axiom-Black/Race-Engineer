@@ -71,6 +71,91 @@ describe('parseSessionFiles', () => {
     expect(s.laps[s.laps.length - 1].lapTimeS).toBeNull()
   })
 
+  it('spends its point budget on corners, not evenly on distance', async () => {
+    // The bar this defends: 400 points spread evenly gave ~13.5 m spacing
+    // everywhere at COTA, and corner detection plateaued at twelve corners on
+    // a twenty-corner circuit. Redistributing the SAME budget by importance
+    // (lib/resample.js) buys the resolution back without buying storage.
+    const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
+    const fastest = s.trace.laps.find((l) => l.lap === s.fastestLapNo)
+    expect(fastest).toBeDefined()
+
+    const lengthM = s.lengthKm * 1000
+    const gaps = fastest.pts
+      .slice(1)
+      .map((p, i) => (p.d - fastest.pts[i].d) * lengthM)
+      .sort((a, b) => a - b)
+    const min = gaps[0]
+    const max = gaps[gaps.length - 1]
+
+    // Measured on the real export: ~4.9 m at the tightest, ~35 m down the
+    // straights. Asserting the SPREAD rather than the numbers — the point is
+    // that spacing varies by several times, which uniform sampling cannot do.
+    expect(max / min).toBeGreaterThan(3)
+    expect(min).toBeLessThan(8)
+    // ...and no gap so long the map visibly cuts a corner.
+    expect(max).toBeLessThan(60)
+  })
+
+  it('DETECTS AND PERSISTS ALL 20 OF COTA\'S CORNERS, on every lap', async () => {
+    // The headline claim of lib/cornerDetect.js, and the reason detection moved
+    // off the downsampled trace. Reading `G Force Lat` at its own 25 Hz instead
+    // of GPS geometry at 5 Hz finds the circuit's official twenty on the
+    // out-lap and all three timed laps — not a lucky lap, the whole session.
+    //
+    // The old ceilings, for contrast: 12 corners from a uniformly spaced trace,
+    // 15 from an importance-weighted one. Both were properties of our storage
+    // budget rather than of the circuit.
+    const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
+    const full = s.trace.laps.filter((l) => l.pts.length >= 100)
+    expect(full.length).toBe(4)
+    for (const lap of full) expect(lap.corners).toHaveLength(20)
+  })
+
+  it('gives each corner an apex speed, a gear and a direction', async () => {
+    const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
+    const fastest = s.trace.laps.find((l) => l.lap === s.fastestLapNo)
+    for (const c of fastest.corners) {
+      expect(c.minSpeed).toBeGreaterThan(0)
+      expect(['left', 'right']).toContain(c.dir)
+      expect(c.peakG).toBeGreaterThan(0)
+      expect(c.gear).toBeGreaterThanOrEqual(1)
+    }
+    // COTA's slowest corner is Turn 1 at first-gear pace, its fastest a
+    // third/fourth-gear sweep. A detector reporting everything at one speed
+    // would pass a bare "greater than zero" check and be obviously wrong.
+    const speeds = fastest.corners.map((c) => c.minSpeed)
+    expect(Math.min(...speeds)).toBeLessThan(80)
+    expect(Math.max(...speeds)).toBeGreaterThan(150)
+  })
+
+  it('stores corners by DISTANCE, so a future resampler cannot invalidate them', async () => {
+    // Indices would have been cheaper and would have broken the moment the
+    // trace was resampled — which has already happened once.
+    const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
+    const fastest = s.trace.laps.find((l) => l.lap === s.fastestLapNo)
+    for (const c of fastest.corners) {
+      expect(c.d).toBeGreaterThanOrEqual(0)
+      expect(c.d).toBeLessThanOrEqual(1)
+      expect(c.dStart).toBeLessThanOrEqual(c.d)
+      expect(c.dEnd).toBeGreaterThanOrEqual(c.d)
+      expect(c).not.toHaveProperty('apexIdx')
+    }
+    // ...and they arrive in lap order, numbered from 1.
+    expect(fastest.corners.map((c) => c.n)).toEqual(fastest.corners.map((_, i) => i + 1))
+    const ds = fastest.corners.map((c) => c.d)
+    expect(ds).toEqual([...ds].sort((a, b) => a - b))
+  })
+
+  it('costs almost nothing to store beside the trace', async () => {
+    // The whole reason this is affordable: about twenty small objects per lap
+    // against a 400-point trace. If this ever approaches the trace's own size,
+    // the design decision behind it has quietly stopped being true.
+    const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
+    const cornerBytes = JSON.stringify(s.trace.laps.map((l) => l.corners)).length
+    expect(cornerBytes).toBeLessThan(JSON.stringify(s.trace).length * 0.1)
+  })
+
   it('resamples each lap to ~400 points ALONG TRACK DISTANCE, not time', async () => {
     const s = await parseSessionFiles({ ldBytes, ldxText, svmText })
     for (const lapTrace of s.trace.laps) {

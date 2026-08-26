@@ -101,22 +101,3 @@ export function gCrossPosition(lat, long, max = 2.5) {
   const y = clamp(long)
   return x === null || y === null ? null : { x, y }
 }
-
-/**
- * Replay stepping: where the cursor lands after `dt` seconds at `rate`.
- *
- * Wraps to the start rather than stopping at the end, because a lap replay that
- * halts on the last sample makes the driver re-scrub to watch it again.
- * `lapSeconds` comes from the lap's own time — the persisted trace indexes by
- * distance fraction, not seconds, so it cannot supply duration itself.
- */
-export function advanceCursor(index, count, dt, lapSeconds, rate = 1) {
-  const n = strictNum(count)
-  const secs = strictNum(lapSeconds)
-  const i = strictNum(index)
-  if (!Number.isFinite(n) || n < 2 || !Number.isFinite(secs) || secs <= 0) return i || 0
-  const perSecond = (n / secs) * (strictNum(rate) || 1)
-  const next = i + dt * perSecond
-  if (!Number.isFinite(next)) return 0
-  return next >= n - 1 ? 0 : next
-}

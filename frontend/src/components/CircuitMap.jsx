@@ -17,7 +17,7 @@ const CHIP_H = 28
 const BADGE_R = 14
 const LEADER = 54
 
-export default function CircuitMap({ pts, aspect, cursor, onScrub }) {
+export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: given, activeCorner }) {
   const withGps = gpsPoints(pts)
   // `aspect` as persisted by ingest.js is lonSpan / latSpan — WIDTH over
   // HEIGHT. Every consumer had been computing `height = width * aspect`, which
@@ -32,7 +32,10 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub }) {
     return { width, height, pad: 90 }
   }, [aspect])
 
-  const corners = useMemo(() => detectCorners(pts), [pts])
+  // Corners come from the parent when it has already detected them — the Track
+  // Map's instrument panel needs the same set, and detecting twice would spend
+  // the work twice and risk the two disagreeing.
+  const corners = useMemo(() => given ?? detectCorners(pts), [given, pts])
   const topIdx = useMemo(() => topSpeedIndex(pts), [pts])
 
   // Badge placement: offset along the outward normal, then relaxed apart. Done
@@ -110,15 +113,19 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub }) {
         </g>
       )}
 
-      {badges.map((b) => (
+      {badges.map((b) => {
+        // The corner the cursor is inside lights up, so the map and the panel
+        // beside it are visibly talking about the same turn.
+        const live = b.n === activeCorner
+        return (
         <g key={b.n}>
-          <line x1={b.ax} y1={b.ay} x2={b.bx} y2={b.by} stroke="#3A4046" strokeWidth="1.5" />
-          <circle cx={b.bx} cy={b.by} r={BADGE_R} fill="#2E3338" stroke="#3A4046" strokeWidth="1.5" />
-          <text x={b.bx} y={b.by + 5} fill={C.silver3} fontSize="13" fontWeight="800" textAnchor="middle" fontFamily={font.ui}>
+          <line x1={b.ax} y1={b.ay} x2={b.bx} y2={b.by} stroke={live ? C.pink : '#3A4046'} strokeWidth="1.5" />
+          <circle cx={b.bx} cy={b.by} r={BADGE_R} fill={live ? C.pinkBg : '#2E3338'} stroke={live ? C.pink : '#3A4046'} strokeWidth="1.5" />
+          <text x={b.bx} y={b.by + 5} fill={live ? C.pink : C.silver3} fontSize="13" fontWeight="800" textAnchor="middle" fontFamily={font.ui}>
             {String(b.n).padStart(2, '0')}
           </text>
           <g transform={`translate(${b.bx + 19},${b.by - CHIP_H / 2})`}>
-            <rect width={CHIP_W} height={CHIP_H} rx="8" fill={C.panel2} stroke="#2A2F35" strokeWidth="1" />
+            <rect width={CHIP_W} height={CHIP_H} rx="8" fill={C.panel2} stroke={live ? C.pinkBd : '#2A2F35'} strokeWidth="1" />
             <text x="12" y="19" fill={C.dim} fontSize="10" fontFamily={font.ui}>◔</text>
             <text x="26" y="19" fill={C.silver3} fontSize="13" fontWeight="700" fontFamily={font.mono}>
               {b.minSpeed ?? '—'}
@@ -130,7 +137,8 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub }) {
             </text>
           </g>
         </g>
-      ))}
+        )
+      })}
 
       {cur && cur.x != null && (
         <>

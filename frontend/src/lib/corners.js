@@ -1,9 +1,23 @@
-// ByteCraft Racing — corner detection from the GPS trace.
+// ByteCraft Racing — corners on the map: resolving the persisted set, and the
+// legacy fallback that detects from the trace's geometry.
 //
 // WHY THIS EXISTS. The track map without corner numbers is a coloured line: it
 // shows where the car was, and answers nothing. The number a driver wants is
 // "what did I carry through turn 6, and in what gear" — which needs the
 // corners themselves identified, numbered and given an apex.
+//
+// WHERE CORNERS COME FROM NOW. **lib/cornerDetect.js, at ingest, from
+// `G Force Lat` at its own 25 Hz** — 8.5x this trace's resolution — and the
+// result is persisted with the session. That finds 20 corners on every lap of
+// the real COTA export against the circuit's official 20. `resolveCorners()`
+// below is the normal path.
+//
+// EVERYTHING BELOW `detectCorners` IS THE FALLBACK, and it is kept only for
+// sessions ingested before corners were persisted. It reads the downsampled
+// trace, so it is capped by a storage decision rather than by the circuit: 12
+// corners under uniform spacing, 15 under importance-weighted spacing, on a
+// track with 20. Do not extend it, and do not tune it in the belief that the
+// gap is tunable — it is not, which is exactly why detection moved to ingest.
 //
 // METHOD: MENGER CURVATURE, THEN SPEED FOR THE APEX.
 //
@@ -19,27 +33,14 @@
 // Positions are the normalised 0…1 GPS the trace already carries, so curvature
 // is in normalised units and the threshold is a shape property, not a distance.
 //
-// THE LIMIT IS TRACE RESOLUTION, AND IT IS OURS.
-//
-// Phase 1 persists a DOWNSAMPLED trace — ~400 points per lap. At COTA that is
-// 5.42 km / 400 = roughly 13.5 m between samples, and COTA's tight sequences
-// are shorter than the window any curvature estimate needs. Sweeping the real
-// export shows detection plateauing at TWELVE corners: curvature alone reaches
-// 13 across every threshold and span tried, speed dips alone 12, the union 12.
-// The circuit has 20.
-//
-// So the gap is not a tuning failure and cannot be tuned away. Raising the
-// persisted trace resolution is the only thing that would move it, and that is
-// a storage decision, not a detection one. The earlier prototype's 16 corners
-// came from a set precomputed against the full-rate data, which is why it is
-// not reproducible here.
-//
-// CONSEQUENCE FOR THE UI: this numbering is OURS, derived from one lap, and it
-// is not the circuit's official numbering. It must be labelled as such —
-// showing "T12" next to a corner a driver calls turn 15 is worse than showing
+// CONSEQUENCE FOR THE UI, WHICHEVER PATH PRODUCED THE CORNERS: this numbering
+// is OURS. It counts cornering events; official numbering is a circuit-operator
+// convention that no telemetry channel contains. It must stay labelled as such
+// — showing "T12" next to a corner a driver calls turn 15 is worse than showing
 // an honest count, because it invites them to quote it to someone else. The
 // curated corner registry in Phase 3 is what replaces it with real numbering.
 import { strictNum } from './num.js'
+import { distanceAxis, nearestIndex } from './traceAxis.js'
 
 /** Menger curvature at index i, or 0 where it is undefined. */
 export function curvatureAt(pts, i, span = 3) {
@@ -133,30 +134,40 @@ export function speedDips(pts, { prominence, minGap }) {
   return out.map((k) => k.i)
 }
 
-// Defaults chosen by sweeping the real COTA export, not guessed. Across every
-// combination tried, detection plateaus at TWELVE corners — curvature alone
-// tops out at 13, speed dips alone at 12, and the union at 12. See the
-// resolution note in the module header for why.
+// Defaults RE-SWEPT against the importance-weighted trace, not guessed and not
+// carried over: every one of these moved when lib/resample.js changed what a
+// sample index is worth. The winning combination finds 15 corners on the real
+// COTA fastest lap; the next setting up (minGap 3) reports 16 by splitting one
+// turn at 78%/79% into two, which is a worse answer with a bigger number.
 export const DEFAULTS = {
-  threshold: 12,
+  // Menger curvature, in normalised-GPS units. Far higher than the old 12
+  // because corner samples are now ~5 m apart rather than ~13 m: the same turn
+  // resolves as a much tighter arc, so the bar to clear rises with it.
+  threshold: 40,
   // A corner must persist over more than one sample: isolated spikes are GPS
   // noise, not turns.
   minRun: 2,
   // Runs closer than this are one corner — what merges an entry and exit
   // phase, and what makes a multi-apex complex read as one.
   mergeGap: 3,
-  // Half-width of the curvature window, in samples. The trace is ~400 points
-  // per lap (~13 m at COTA), so a span of 3 smooths a 40 m window and erases
-  // tighter turns — this is the knob that decides resolution.
-  span: 2,
+  // Half-width of the curvature window, in samples. Now 1 (a 3-point window),
+  // because in a corner that spans ~10-20 m rather than the ~55 m a span of 2
+  // covered under uniform sampling. This is the knob that decides resolution.
+  span: 1,
   // Speed drop, in km/h, that marks a corner geometry alone would miss.
-  prominence: 6,
-  // Two detections closer than this are the same corner.
-  minGap: 5,
+  prominence: 3,
+  // Two detections closer than this are the same corner. In samples, so it
+  // tightened along with the spacing.
+  minGap: 4,
 }
 
 /**
- * Detect corners in a single lap's trace.
+ * LEGACY: detect corners from a single lap's downsampled trace.
+ *
+ * Only reached for sessions persisted before ingest-time detection existed —
+ * `resolveCorners()` prefers the stored set. See the module header for why this
+ * cannot reach the real corner count and must not be tuned in the hope that it
+ * can.
  *
  * @returns Array of `{ n, startIdx, apexIdx, endIdx, minSpeed, gearAtApex, nx, ny }`
  *          numbered from 1 in lap order.
@@ -229,6 +240,21 @@ export function detectCorners(pts, opts = {}) {
   })
 }
 
+/**
+ * The corner the cursor is currently inside, or null on a straight.
+ *
+ * Deliberately NOT "the nearest corner": a cursor halfway down the back
+ * straight is not in a corner, and labelling it with whichever turn happens to
+ * be closest would put a corner readout on a piece of track that has none.
+ * Straight is a real answer.
+ */
+export function cornerAt(corners, index) {
+  if (!Array.isArray(corners)) return null
+  const i = strictNum(index)
+  if (!Number.isFinite(i)) return null
+  return corners.find((c) => i >= c.startIdx && i <= c.endIdx) ?? null
+}
+
 /** Index of the fastest point in the lap — the top-speed marker. */
 export function topSpeedIndex(pts) {
   if (!Array.isArray(pts) || pts.length === 0) return null
@@ -270,4 +296,63 @@ export function relaxLabels(items, { chipW, chipH, width, height, passes = 40 })
     if (!moved) break
   }
   return out
+}
+
+/**
+ * Turn the persisted corner set into what the map draws.
+ *
+ * Ingest stores corners as DISTANCE FRACTIONS, not trace indices, so that the
+ * stored set survives any future change to how the trace is resampled — the
+ * importance-weighted resampler moved every index once already. Inverting `d`
+ * here costs a binary search per corner and means the two can never drift.
+ *
+ * A corner whose apex falls outside the trace (a GPS dropout at exactly that
+ * point) is dropped rather than clamped to the nearest sample: a badge pinned
+ * to the wrong piece of track is worse than one corner not shown.
+ */
+export function cornersFromPersisted(persisted, pts) {
+  if (!Array.isArray(persisted) || persisted.length === 0) return []
+  if (!Array.isArray(pts) || pts.length === 0) return []
+
+  const axis = distanceAxis(pts)
+  const centroid = centroidOf(pts)
+
+  return persisted
+    .map((c, i) => {
+      const d = strictNum(c?.d)
+      if (!Number.isFinite(d)) return null
+      const apexIdx = nearestIndex(axis, d)
+      const startIdx = Number.isFinite(strictNum(c?.dStart)) ? nearestIndex(axis, strictNum(c.dStart)) : apexIdx
+      const endIdx = Number.isFinite(strictNum(c?.dEnd)) ? nearestIndex(axis, strictNum(c.dEnd)) : apexIdx
+      const { nx, ny } = outwardNormal(pts, apexIdx, centroid)
+      const minSpeed = strictNum(c?.minSpeed)
+      const gear = strictNum(c?.gear)
+      return {
+        n: strictNum(c?.n) || i + 1,
+        startIdx: Math.min(startIdx, apexIdx),
+        apexIdx,
+        endIdx: Math.max(endIdx, apexIdx),
+        minSpeed: Number.isFinite(minSpeed) ? Math.round(minSpeed) : null,
+        gearAtApex: Number.isFinite(gear) ? Math.round(gear) : null,
+        direction: c?.dir ?? null,
+        peakG: strictNum(c?.peakG) ?? null,
+        nx,
+        ny,
+      }
+    })
+    .filter(Boolean)
+}
+
+/**
+ * The corners to draw for a lap: the persisted set when the session has one,
+ * the legacy trace detector when it does not.
+ *
+ * The fallback is deliberately silent rather than flagged. A session uploaded
+ * before ingest-time detection is not faulty, and its map is not wrong — it is
+ * coarser, and telling a driver their old session is somehow lesser would be
+ * noise about our release history rather than about their driving.
+ */
+export function resolveCorners(persisted, pts, opts) {
+  const stored = cornersFromPersisted(persisted, pts)
+  return stored.length ? stored : detectCorners(pts, opts)
 }
