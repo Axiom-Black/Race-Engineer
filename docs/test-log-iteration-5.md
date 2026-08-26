@@ -15,17 +15,18 @@ Question tags: `HAVE` (presentation gap) · `PARSE` (channel exists, unsurfaced)
 ## Template — copy this
 
 ```markdown
-## S00 · YYYY-MM-DD · <car> @ <track> · <session type>
+## S00 · YYYY-MM-DD · <car> @ <track> · <session type> · acct <1-4>
 
 - PREDICTION (before driving):
 - OUTCOME:                          HIT / MISS (driver miss | product miss)
 - TIME TO INSIGHT:
-- DID THE DATA NAME THE LEVER?      yes / partly / no —
+- CHANGE MADE THIS SESSION:         notes | upload | delete | units | percentiles
+  - time:            attempts:      stuck after reload/signout:      reversible:
 - WRONG TURNS:                      n —
 - QUESTIONS:
   - ""                              [TAG]
 - DEFECTS:
-- BUILD:
+- BUILD:                            <sha from header marker>
 ```
 
 ---
@@ -38,14 +39,33 @@ Updated at each review (day 7, day 14).
 | --- | --- | --- |
 | Sessions logged | | |
 | Car classes covered | | |
-| Tracks covered | | |
+| Tracks covered (of roster) | | |
 | Combos with ≥2 sessions | | |
 | Longest unbroken stint (laps) | | |
+| Accounts with a full end-to-end run | / 4 | / 4 |
 | Prediction hit-rate | | |
 | Median time to insight | | |
 | Questions logged | | |
 | — of which `AGENT` | | |
 | Wrong turns (total) | | |
+
+### D3 · the four change surfaces
+
+| Surface | Evaluated? | Time | Stuck? | Notes |
+| --- | --- | --- | --- | --- |
+| Session notes (corner / straight) | | | | |
+| Upload + delete | | | | |
+| Units imperial ↔ SI | | | | |
+| Progression percentiles | | | | |
+
+### D6 · per-account
+
+| Acct | Full run? | Isolation queried from this side? | Prefs held? | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | | | | |
+| 2 | | | | |
+| 3 | | | | |
+| 4 | | | | |
 
 ---
 

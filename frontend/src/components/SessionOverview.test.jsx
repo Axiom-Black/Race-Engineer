@@ -13,6 +13,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import SessionOverview from './SessionOverview.jsx'
+import { BUILD } from '../lib/buildInfo.js'
 
 // Fixture extents, from golden_master_ld.json.
 const CHANNELS = [
@@ -164,5 +165,45 @@ describe('edge cases', () => {
   it('marks a demo session as one', () => {
     renderOverview({ session: { ...SESSION, is_demo: true } })
     expect(screen.getByText('DEMO')).toBeInTheDocument()
+  })
+})
+
+describe('the build stamp', () => {
+  // Parsing is client-side and derived data is written once, at upload — so a
+  // session is permanently shaped by the bundle that ingested it. Establishing
+  // that a "14 corners instead of 20" report was a stale record rather than a
+  // broken detector took three exchanges on 26 Aug; these make it a glance.
+  //
+  // Expectations derive from BUILD rather than hard-coding a sha: Vite's
+  // `define` applies under the runner, so the value changes every commit.
+
+  const withIngest = (ingest) => ({
+    session: { ...SESSION, summary: { ...SESSION.summary, ingest } },
+  })
+
+  it('says nothing when the session was parsed by the running build', () => {
+    // Silence is the normal case. A badge on every session would train a driver
+    // to ignore the one that matters.
+    renderOverview(withIngest({ build: BUILD.sha, buildShort: BUILD.short }))
+    expect(screen.queryByText(/re-upload to recompute/i)).toBeNull()
+  })
+
+  it('flags a session ingested before build stamping existed', () => {
+    // Every session already in Storage is in this state. Not an error — "we
+    // cannot tell" — and the wording says exactly that rather than crying stale.
+    renderOverview(withIngest(undefined))
+    expect(screen.getByText(/Parsed before build stamping/i)).toBeInTheDocument()
+    expect(screen.queryByText(/an earlier build/i)).toBeNull()
+  })
+
+  it('flags a session parsed by a genuinely older build, and names it', () => {
+    // The case the whole feature exists for: derived data older than the code
+    // reading it, where the fix is a re-upload and not a refresh.
+    renderOverview(withIngest({ build: '0'.repeat(40), buildShort: '0000000' }))
+    if (BUILD.known) {
+      expect(screen.getByText(/Parsed by an earlier build \(0000000\)/i)).toBeInTheDocument()
+    } else {
+      expect(screen.getByText(/Parsed before build stamping/i)).toBeInTheDocument()
+    }
   })
 })

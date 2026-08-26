@@ -15,6 +15,7 @@ import { formatSessionDate } from '../lib/sessionTime'
 import { headlineStats, sessionSubtitle, STAT } from '../lib/sessionOverview'
 import { reconcile } from '../lib/lapReconciliation'
 import SessionRuns from './SessionRuns'
+import { isCurrentBuild, stampLabel } from '../lib/buildInfo'
 
 // A dash with no explanation is indistinguishable from a bug. Every non-OK
 // stat says which channel it came from and why it has no number — the
@@ -54,6 +55,38 @@ function Stat({ stat }) {
           {stat.why ?? WHY[stat.status]}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Which build parsed THIS session — a different question from which build is
+ * serving the page, and the one that decides between "reload" and "re-upload".
+ *
+ * Silent when the two agree: a driver does not need to be told the normal case.
+ * It speaks up only when the record predates the running build, or when the
+ * session was ingested before this was recorded at all — the two states where
+ * derived data (corners, traces, run averages) may be older than the code
+ * reading it, and where the fix is a re-upload rather than a refresh.
+ */
+function ParsedBy({ stamp }) {
+  const label = stampLabel(stamp)
+  const current = isCurrentBuild(stamp)
+  if (current === true) return null
+
+  const stale = label && current === false
+  return (
+    <div
+      style={{ fontSize: 10, color: stale ? C.warn : C.dim, marginTop: 4 }}
+      title={
+        stale
+          ? 'Corners, traces and run averages were computed by an older build. Re-upload this session to recompute them.'
+          : 'This session predates build stamping, so which build parsed it is unknown.'
+      }
+    >
+      {stale
+        ? `⚑ Parsed by an earlier build (${label}) — re-upload to recompute`
+        : 'Parsed before build stamping — re-upload to recompute'}
     </div>
   )
 }
@@ -113,6 +146,7 @@ export default function SessionOverview({ session, laps, onOpenReport, onBack })
             {subtitle ? `${subtitle} · ` : ''}
             {formatSessionDate(session.recorded_at) || '—'}
           </div>
+          <ParsedBy stamp={session.summary?.ingest} />
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 26, flexWrap: 'wrap' }}>

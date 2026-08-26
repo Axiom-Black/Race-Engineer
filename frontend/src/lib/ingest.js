@@ -22,6 +22,7 @@ import { parseSvm, vehicleInfo, energyScheme } from './motec/svm'
 import { domainOf } from './motec/domain'
 import { importanceWeights, allocateByWeight } from './resample'
 import { detectCornersFromG, lateralCapability, smooth, DETECT_DEFAULTS } from './cornerDetect'
+import { ingestStamp } from './buildInfo'
 
 const TARGET_POINTS_PER_LAP = 400
 const WHEEL_CHANNELS = ['FL', 'FR', 'RL', 'RR']
@@ -427,6 +428,14 @@ export async function parseSessionFiles({ ldBytes, ldxText, svmText }) {
       laps: tracePts,
     },
     summary: {
+      // WHICH BUILD PARSED THIS. Parsing is client-side and derived data is
+      // written once, at upload — so a session is permanently shaped by the
+      // bundle that ingested it, however new the page reading it later is.
+      // Without this recorded, a stale record is indistinguishable from a
+      // broken feature; establishing that took three exchanges on 26 Aug.
+      // Rides in the summary jsonb rather than taking a column, the same way
+      // lap `kind`/`durationS` do — no migration for metadata.
+      ingest: ingestStamp(),
       totalLaps: ldx.totalLaps,
       fastestLap: ldx.fastestLap,
       fastestTimeS: ldx.fastestTimeS,

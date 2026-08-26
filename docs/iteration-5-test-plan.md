@@ -1,9 +1,12 @@
 # Iteration 5 — "Tester in the loop": a two-week evaluation
 
-> **Status:** proposed 26 Aug 2026. Owner is both the customer (WORKING_PLAN §5,
-> 26 Aug) and the tester. **No new features ship during the window** — see
-> *Freeze* below. Ends with a written verdict per dimension and one pull
-> decision for Iteration 6.
+> **Status:** proposed 26 Aug 2026, revised the same day against owner
+> corrections (independent accounts, the LMU roster, and what D3 actually
+> means). Owner is both the customer (WORKING_PLAN §5, 26 Aug) and the tester.
+>
+> **Two phases: a short build (Week 0, §5a) then a frozen 14-day window.** Four
+> accounts, each an independent user. Ends with a written verdict per dimension
+> and one pull decision for Iteration 6.
 
 ---
 
@@ -55,11 +58,18 @@ under the final parser, and nothing needs re-uploading by hand.
 
 ---
 
-## 2 · Coverage: name the properties, not the circuits
+## 2 · Coverage: the LMU roster, with properties attached
 
-The point of variety is not variety. It is **first contact with the code paths a
-single GTE-at-COTA export never touched.** Pick real cars and tracks that have
-these properties — the properties are what break things.
+**The owner supplies the full LMU track list; the schedule is sorted against
+it.** The roster and its property columns live in
+**`docs/lmu-track-roster.md`** — length, longest straight, official corner
+count, corner density, elevation. Those columns are what make the list useful
+for choosing *which* track to drive on a given day: a track is a test case, and
+what makes it a different test case is the code path it stresses, not its name.
+
+Coverage targets are set on the properties (longest, shortest, densest, longest
+straight, real elevation, plus COTA as control) rather than on a track count —
+one track can satisfy several, so six targets might take three tracks or six.
 
 ### Cars — one from each row, minimum
 
@@ -70,15 +80,6 @@ these properties — the properties are what break things.
 | **Much higher grip** | The corner detector's scale is self-normalising — this is where that claim meets reality | Hypercar |
 | **Much lower grip / less downforce** | The other end of the same claim | LMP3 or GTE |
 
-### Tracks — three, differing on these axes
-
-| Property | What it stresses |
-| --- | --- |
-| **A very long straight** | The importance-weighted resampler (does it starve the straight?), and the detector's indifference to straight-to-corner ratio |
-| **Tight and low-speed throughout** | Corner density against the 400-point budget; whether corners crowd on the map |
-| **Significantly different lap length** | Trace resolution per kilometre — a 3 km lap and a 13 km lap get the same 400 points |
-| **Elevation and/or banking** | `G Force Vert`, ride-height channels — completely unexercised |
-
 ### Sessions
 
 | Type | Why |
@@ -88,8 +89,8 @@ these properties — the properties are what break things.
 | **Race** | Traffic, fuel/energy burn, pit stops — the messiest and most realistic |
 | **Wet or night, if LMU offers it** | Grip is genuinely different, which is a *real-world* test of the 26 Aug robustness rework rather than a synthetic one |
 
-> **Dependency to confirm on Day 0:** which classes and tracks you actually have
-> access to. If Hypercar or LMGT3 is unavailable, the virtual-energy branch stays
+> **Dependency to confirm on Day 0:** which classes you actually have access to.
+> If Hypercar and LMGT3 are both unavailable, the virtual-energy branch stays
 > untested and that must be recorded as an open risk rather than quietly skipped.
 
 ---
@@ -128,21 +129,45 @@ stays flat means it is not, and the flatness is the finding. Note separately
 anything you had to *re-learn* on a later session — that is a design defect, not
 a memory problem.
 
-### D3 · Ease of making changes — *measured as: did the data name the lever?*
+### D3 · Ease of making a change — *the four surfaces where a user changes something*
 
-> **Ambiguity flagged:** I am reading this as *the driver's* ability to turn a
-> reading into a concrete change — setup or technique. If you meant *our*
-> ability to change the product (dev velocity), say so and I will swap this
-> probe; the plan is otherwise unaffected.
+**Corrected 26 Aug.** This is about **how easily a user can change things in the
+product** — not about acting on telemetry, and not about our dev velocity. My
+first reading was wrong; the owner's is concrete, and it names four surfaces:
 
-**Probe, per session, two answers:**
+| Surface | State today |
+| --- | --- |
+| **Session notes, per corner or straight, owned by one user** | ❌ **not built** — parked in WORKING_PLAN §6 |
+| **Uploading and deleting session files** | ✅ built (C0, 25 Aug) |
+| **Units: imperial ↔ SI** | ❌ **not built** — everything is metric, hard-coded |
+| **Percentiles / tier thresholds in Progression** | ✅ built, per user, in `localStorage` |
 
-1. Did the data tell you **what** to change? (yes / partly / no)
-2. If partly or no — **what were you missing?** One line.
+**Two of the four do not exist, so they cannot be evaluated.** You cannot
+measure the ease of changing something that offers no way to change it. That is
+what Week 0 (§5a) is for.
 
-The output is a list of **missing levers**, which is a far better backlog than
-anything I would guess at. Expect entries like "no brake-pressure trace against
-distance" or "cannot see which gear I *should* have been in".
+**Probe, per surface, four readings:**
+
+1. **Time** to complete the change.
+2. **Attempts** — did it work first try?
+3. **Did it stick?** Survive a reload, a sign-out, a different browser or device.
+4. **Was it reversible?** Could you put it back.
+
+Reading 3 is the one that will find something. Tier thresholds live in
+`localStorage`, so they are per *browser*, not per *account* — a driver who signs
+in elsewhere silently gets the defaults back. That is a known, logged limitation;
+with four independent accounts being exercised it stops being a footnote and
+becomes a measurable defect. Whether it matters is exactly what this dimension
+is for.
+
+**A design constraint for the notes build, learned the hard way this week:**
+**anchor a note to a distance span, never to a corner number.** Corner numbering
+is *ours* and derived — the detector changed twice in three days. A note pinned
+to "corner 14" is orphaned the moment the detector splits corner 13. Anchoring
+to `[dStart, dEnd]` (distance fractions, exactly as the persisted corners are)
+covers a corner *and* a straight with one shape, and survives both a re-parse and
+a detector change. This is the same lesson as storing corners by `d` rather than
+by index, and it is cheaper to get right now than to migrate later.
 
 ### D4 · Decision-making without agents — *the log of unanswerable questions*
 
@@ -182,25 +207,104 @@ pile is the Phase 2 brief.
 you wanted was elsewhere. One tally mark each. Note *what you were looking for*
 and *where you looked first* — where you looked first is where it belongs.
 
-### D6 · User roles — *a design exercise, and I will not pretend otherwise*
+### D6 · User roles — *four independent accounts, tested independently*
 
-**This dimension cannot be tested by one person, and saying otherwise would be
-theatre.** One driver cannot discover what a team needs; RLS already isolates
-accounts, and there is nothing multi-user to exercise.
+**Corrected 26 Aug: each account is an independent user, and roles are tested
+per account.** That upgrades this dimension from a paper exercise to real
+testing, and it retires my earlier objection — for the individual role.
 
-What *can* be done honestly, on Day 13:
+**What four independent accounts genuinely establish:**
 
-- **Model it against real data.** With two weeks of your own sessions on screen,
-  answer: if a teammate were in this data, what should they see of yours, and
-  what must they never see? Write the answer as a table of role → visible.
-- **Use the three existing accounts** to sanity-check the isolation boundary
-  from the *outside* — not as a team feature test, but to confirm the wall is
-  where we think it is.
-- **Name the first thing that would break** if a second real driver joined.
+- The **individual role works end-to-end, four times, on different data** — not
+  once on the owner's.
+- **Isolation from every side.** C4 proved one direction (one account sees 1 of
+  4 sessions). Four accounts means querying the boundary from each side, which is
+  what "isolated" actually claims.
+- **Per-account state really is per-account:** notes, tier thresholds, units,
+  demo dismissal. Four accounts is the first configuration where a leak between
+  users would be *visible* rather than theoretical.
+- The **`localStorage` limitation becomes measurable** — preferences are per
+  browser, not per account, so signing into two accounts in one browser is the
+  test that exposes it.
 
-Output is a **role model on paper plus a list of unknowns** — explicitly not a
-build. Anything built here would be built for a user who does not exist, which
-is the exact overproduction Establish Pull forbids.
+**What four accounts still cannot establish, and this is not pedantry:**
+anything that needs a second *person* with different goals. What a coach wants
+to see of a driver, what a team lead needs, invite and consent flows, whether
+shared visibility is even wanted. Four logins driven by one person cannot
+generate that — it is one set of goals wearing four hats. Recorded as an open
+risk carried into Iteration 6, not silently skipped.
+
+**Probe:** run the full session — sign up or sign in, upload, read, change
+something, delete — on each account, and record D1–D5 separately per account.
+Then query isolation from each account's side.
+
+## 3a · Week 0 — the build that has to precede the test
+
+**Why this exists.** D3 names four surfaces where a user changes something, and
+**two of them do not exist**. You cannot measure the ease of changing a thing
+that offers no way to change it, and shipping them *during* the window would
+violate the freeze and contaminate every earlier session. So they are built
+first, then the clock starts.
+
+This is not scope creep — it is the direct consequence of what D3 turned out to
+mean. If the timeline matters more than D3's completeness, the alternative is
+stated at the bottom of this section.
+
+| # | Build | Size | Why it gates the window |
+| --- | --- | --- | --- |
+| **W0.1** | **Build marker** — commit + build time in the header, and the parsing build recorded per session at ingest and shown on the session page | Small | Stale derived data currently looks identical to a broken feature. During a frozen window, that distinction is the difference between a real finding and a wasted day. It cost three exchanges on 26 Aug. |
+| **W0.2** | **Units: imperial ↔ SI**, per account | Broad but shallow | Touches every number on screen, so it is a formatting seam plus a stored preference — little logic, wide reach. Also the cheapest possible test of whether per-account preferences work at all. |
+| **W0.3** | **Track Notes: a per-user master, sorted by track, annotated by vehicle and conditions** | The real work | Needs a table, an RLS policy, a migration and UI on the map and report — all four **open for discussion** per the owner. Notes outlive the sessions that produced them; the source session is metadata, not ownership. First driver-authored data in the product. |
+
+### W0.3 — Track Notes as a per-user master, owned by the driver
+
+**Owner's design, 26 Aug, and it is better than the session-scoped version I had
+been assuming.** Notes are not attached to a session. They live in a **per-user
+master, sorted by track**, and each note is **annotated by vehicle and by
+environment conditions**. The session a note came from is recorded as
+**metadata**, not as ownership.
+
+The consequence is the point: **deleting a session does not delete the knowledge
+it produced.** A driver keeps what they learned at a circuit and can still see
+which session it came from — and can tell, when that session is gone, that its
+source has been removed. Notes accumulate into a track-by-track body of the
+driver's own knowledge rather than being scattered across records they may later
+tidy up.
+
+That also changes what a note *is*. Session-scoped notes are an audit trail;
+a per-user, per-track master annotated by car and conditions is **the driver's
+own track guide, built from their own laps** — and it is the natural precursor
+to the curated corner dossiers parked for Phase 3, except authored by the driver
+rather than by us.
+
+| Field | Why |
+| --- | --- |
+| **Track** | The sort key. A note is about a place. |
+| **Anchor `[dStart, dEnd]`** | Distance span — covers a corner *and* a straight with one shape. **Never a corner number:** numbering is ours and derived, and the detector changed twice in three days, so "corner 14" is orphaned the moment corner 13 splits. Same lesson as persisting corners by `d` rather than index. |
+| **Vehicle** | The same corner asks different things of a Hypercar and an LMP3 |
+| **Conditions** | Wet/dry, day/night, and temperatures — a note that was true in the dry can be actively wrong in the wet, and an unlabelled note is worse than none |
+| **Body** | The driver's words |
+| **Source session (metadata)** | Provenance, not ownership. Survives that session's deletion as a dangling reference the UI can label rather than hide. |
+| **Owner** | RLS on `auth.uid()`, per the standing bar — a note is one driver's |
+
+**Open for discussion, per the owner:** the table shape, the RLS policy, the
+migration, and where the UI sits on the map and the report. Two questions I would
+want settled before writing the migration:
+
+1. **Does a note revise or accumulate?** If a driver learns T4 differently in
+   the wet, is that a second note or an edit to the first? The conditions
+   annotation suggests accumulate — but then the map needs to decide which of
+   three notes to show at T4, and "all of them" gets crowded fast.
+2. **What does the map show when the anchor no longer matches a detected
+   corner?** Because a note anchored to a span will sometimes land between two
+   corners after a re-parse. Showing it on the trace at its own distance,
+   independent of corner numbering, is probably the honest answer.
+
+> **If the timeline matters more:** run the 14 days now against the two surfaces
+> that exist (upload/delete, tier thresholds), log the other two as unevaluated,
+> and build them in Iteration 6. That is a legitimate trade — it just means D3
+> comes back half-answered, and D3 is the dimension most likely to produce
+> immediately buildable findings.
 
 ---
 
@@ -234,6 +338,13 @@ averages are *structurally untestable* on one session per combination.
 | **12** | **Deliberately messy**: abort a lap, pit mid-session, spin somewhere | Out-lap/in-lap classification, stint splitting on a gap, and what the corner detector does with a spin. Break it on purpose, once, while it is cheap. |
 | **13** | *(no driving)* Roles exercise (D6) + navigation audit (D5) | The two dimensions that need thinking rather than driving |
 | **14** | *(no driving)* **Conclude** | Verdict per dimension, question log triaged, Iteration 6 pulled |
+
+**Accounts.** Sessions are spread across the four accounts rather than all
+landing on one — each is an independent user (D6), so each needs its own history
+for Progression to mean anything on it. Suggested split: the two repeat
+combinations (days 8–9) stay on **one** account so its Progression page has real
+history, and the breadth sessions distribute across the rest. Day 13's isolation
+check then queries the boundary from all four sides.
 
 **If a day slips, slip the day — do not skip the combination.** The matrix is
 the deliverable; the calendar is a convenience. Days 1, 4, 8 and 10 are the
@@ -300,6 +411,10 @@ The iteration is done when **all** of these are true. Not when 14 days elapse.
 | E6 | **Prediction hit-rate recorded** — N of M, with each miss classified as *driver miss* or *product miss* |
 | E7 | **A written verdict per dimension** (D1–D6), each ending in Do Now / Later / Never |
 | E8 | **Iteration 6 pulled by the verdict**, not by this document or by anything already in the backlog |
+| E9 | **All four surfaces in D3 evaluated** — or the unbuilt ones explicitly recorded as unevaluated, with the reason |
+| E10 | **Each of the four accounts** has run at least one full session end-to-end (sign in → upload → read → change something → delete), with D1–D5 recorded separately |
+| E11 | **Isolation queried from every account's side**, not just one — C4 proved a single direction |
+| E12 | **Track roster filled** for every track driven, with official corner counts where a published figure exists (`docs/lmu-track-roster.md`) |
 
 ---
 
@@ -318,10 +433,15 @@ The iteration is done when **all** of these are true. Not when 14 days elapse.
 
 ## 9 · What this iteration explicitly does not do
 
-- **No new features.** Not one. If something is missing, it goes in the log.
+- **No features built *during* the 14-day window.** Week 0 builds the two D3
+  surfaces that do not exist yet, because D3 is unmeasurable without them; after
+  that the window is closed to new work. Anything else missing goes in the log.
 - **No agent work.** The `AGENT` pile is being *collected*, not served.
-- **No team or role build.** D6 produces paper.
-- **No parser or ingest changes** until day 15, however tempting.
+- **No team, coach or invite features.** D6 tests the *individual* role four
+  times over. Anything multi-person needs a second person with different goals,
+  which four logins driven by one tester cannot supply.
+- **No parser or ingest changes** between day 1 and day 14, however tempting.
 
 The point of a testing iteration is to end with better information than it
-started with. Building during it destroys the measurement.
+started with. Building *during* it destroys the measurement; building the thing
+being measured *before* it is just prerequisite.
