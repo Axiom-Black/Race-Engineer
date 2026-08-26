@@ -15,6 +15,7 @@ import { useState } from 'react'
 import { C, font } from '../theme'
 import { useAuth } from '../lib/auth'
 import { Wordmark } from './ui'
+import BuildMarker from './BuildMarker'
 import TabBar from './TabBar'
 import SessionsTab from './SessionsTab'
 import ProgressionTab from './ProgressionTab'
@@ -57,7 +58,10 @@ export default function AppShell() {
           background: C.panel,
         }}
       >
-        <Wordmark size={16} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Wordmark size={16} />
+          <BuildMarker />
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div
             title={user?.email}

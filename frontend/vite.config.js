@@ -1,5 +1,28 @@
+import { execSync } from 'node:child_process'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+
+/**
+ * The commit this bundle is built from, resolved at build time.
+ *
+ * Order matters. Vercel checks out a detached head and sets
+ * VERCEL_GIT_COMMIT_SHA, so that is authoritative there. `git rev-parse` covers
+ * local and CI builds. When neither works the answer is the string 'unknown' —
+ * honestly wrong beats a blank that reads as "no build info feature".
+ *
+ * Never throws: a build must not fail because git is unavailable.
+ */
+function resolveCommitSha() {
+  const fromEnv = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA
+  if (fromEnv) return fromEnv
+  try {
+    return execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim()
+  } catch {
+    return 'unknown'
+  }
+}
 
 // The two variables the client cannot run without. Vite INLINES these at
 // build time (import.meta.env is substituted, not read at runtime), which is
@@ -55,6 +78,14 @@ function requireSupabaseEnv() {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), requireSupabaseEnv()],
+
+  // Build identity, substituted at build time — see src/lib/buildInfo.js for
+  // why this exists. Not read at runtime, so there is no request to fail and
+  // nothing to configure per environment.
+  define: {
+    __BUILD_SHA__: JSON.stringify(resolveCommitSha()),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
 
   // TEST ENVIRONMENT — deliberately 'node' by default.
   //

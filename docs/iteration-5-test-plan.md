@@ -254,21 +254,51 @@ stated at the bottom of this section.
 | --- | --- | --- | --- |
 | **W0.1** | **Build marker** — commit + build time in the header, and the parsing build recorded per session at ingest and shown on the session page | Small | Stale derived data currently looks identical to a broken feature. During a frozen window, that distinction is the difference between a real finding and a wasted day. It cost three exchanges on 26 Aug. |
 | **W0.2** | **Units: imperial ↔ SI**, per account | Broad but shallow | Touches every number on screen, so it is a formatting seam plus a stored preference — little logic, wide reach. Also the cheapest possible test of whether per-account preferences work at all. |
-| **W0.3** | **Session notes, per corner or straight, owned by one user** | The real work | Needs a table, an RLS policy, a migration and UI on the map and report. It is also the first feature that makes the corner registry matter, and the first driver-authored data in the product. |
+| **W0.3** | **Track Notes: a per-user master, sorted by track, annotated by vehicle and conditions** | The real work | Needs a table, an RLS policy, a migration and UI on the map and report — all four **open for discussion** per the owner. Notes outlive the sessions that produced them; the source session is metadata, not ownership. First driver-authored data in the product. |
 
-**W0.3 carries the one design decision worth getting right:** a note anchors to a
-**distance span `[dStart, dEnd]`**, never to a corner number. Corner numbering is
-ours and derived — the detector changed twice in three days — so a note pinned to
-"corner 14" is orphaned the moment corner 13 splits. A span also covers a corner
-and a straight with the same shape, which is exactly what was asked for. Same
-lesson as persisting corners by `d` rather than by index, and far cheaper now
-than as a migration later.
+### W0.3 — Track Notes as a per-user master, owned by the driver
 
-Notes are also **driver-authored content**, which makes them the first thing in
-this product that is not derived from a file. Two consequences: they must survive
-the day-15 backfill untouched (the anchor is what guarantees that), and deleting
-a session has to decide what happens to its notes — which is a question `C0`'s
-delete never had to answer.
+**Owner's design, 26 Aug, and it is better than the session-scoped version I had
+been assuming.** Notes are not attached to a session. They live in a **per-user
+master, sorted by track**, and each note is **annotated by vehicle and by
+environment conditions**. The session a note came from is recorded as
+**metadata**, not as ownership.
+
+The consequence is the point: **deleting a session does not delete the knowledge
+it produced.** A driver keeps what they learned at a circuit and can still see
+which session it came from — and can tell, when that session is gone, that its
+source has been removed. Notes accumulate into a track-by-track body of the
+driver's own knowledge rather than being scattered across records they may later
+tidy up.
+
+That also changes what a note *is*. Session-scoped notes are an audit trail;
+a per-user, per-track master annotated by car and conditions is **the driver's
+own track guide, built from their own laps** — and it is the natural precursor
+to the curated corner dossiers parked for Phase 3, except authored by the driver
+rather than by us.
+
+| Field | Why |
+| --- | --- |
+| **Track** | The sort key. A note is about a place. |
+| **Anchor `[dStart, dEnd]`** | Distance span — covers a corner *and* a straight with one shape. **Never a corner number:** numbering is ours and derived, and the detector changed twice in three days, so "corner 14" is orphaned the moment corner 13 splits. Same lesson as persisting corners by `d` rather than index. |
+| **Vehicle** | The same corner asks different things of a Hypercar and an LMP3 |
+| **Conditions** | Wet/dry, day/night, and temperatures — a note that was true in the dry can be actively wrong in the wet, and an unlabelled note is worse than none |
+| **Body** | The driver's words |
+| **Source session (metadata)** | Provenance, not ownership. Survives that session's deletion as a dangling reference the UI can label rather than hide. |
+| **Owner** | RLS on `auth.uid()`, per the standing bar — a note is one driver's |
+
+**Open for discussion, per the owner:** the table shape, the RLS policy, the
+migration, and where the UI sits on the map and the report. Two questions I would
+want settled before writing the migration:
+
+1. **Does a note revise or accumulate?** If a driver learns T4 differently in
+   the wet, is that a second note or an edit to the first? The conditions
+   annotation suggests accumulate — but then the map needs to decide which of
+   three notes to show at T4, and "all of them" gets crowded fast.
+2. **What does the map show when the anchor no longer matches a detected
+   corner?** Because a note anchored to a span will sometimes land between two
+   corners after a re-parse. Showing it on the trace at its own distance,
+   independent of corner numbering, is probably the honest answer.
 
 > **If the timeline matters more:** run the 14 days now against the two surfaces
 > that exist (upload/delete, tier thresholds), log the other two as unevaluated,
