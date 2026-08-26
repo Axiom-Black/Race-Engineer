@@ -27,7 +27,11 @@
 import { DEFAULT_TIERS } from './progression.js'
 
 const TIER_KEYS = ['elite', 'competitive', 'developing']
-const NS = 'bytecraft.tiers'
+// Versioned: v1 stored thresholds in SECONDS. They are a percentage of the
+// driver's best lap now (see progression.js), and reading an old "0.5 seconds"
+// back as "0.5 percent" would silently reinterpret a setting a driver chose.
+// A new key means they get the new defaults instead of a wrong number.
+const NS = 'bytecraft.tiers.v2'
 
 function keyFor(userId) {
   return `${NS}.${userId || 'anon'}`

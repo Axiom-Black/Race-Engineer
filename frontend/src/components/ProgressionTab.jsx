@@ -1,15 +1,22 @@
-// ByteCraft Racing — Progression (S6). Real rollup from persisted sessions,
-// not a placeholder: groups by venue+car+session_type, shows best/gap/trend
-// per combo, filterable by car, with tier thresholds that persist per driver.
+// ByteCraft Racing — Progression.
 //
-// One honest difference from the prototype: v12_Merged computes "gap to
-// IDEAL" against a curated reference-lap-time library. That library is a
-// Phase 2+ concept (docs/s5-implementation-plan.md's "Ideal Session Data")
-// that doesn't exist yet — faking a target time would violate the standing
-// bar against faked capability. This shows "gap to YOUR best" instead: a
-// real, computable metric from data that actually exists. The prototype's
-// sparkline scales its floor against `ideal`; with no ideal, ours scales
-// against the driver's own best, which is the same shape over real data.
+// Laid out after prototypes/bytecraft-racing-host.jsx's ProgressionTracker,
+// which the owner named as the target: three facet filters, a tier legend that
+// doubles as the editor, and one dense row per combination carrying gap, tier,
+// sparkline and direction. The previous card stack held the same data and made
+// a driver scroll to compare two circuits; a row grid puts them side by side,
+// which is the whole question this tab answers.
+//
+// ONE HONEST DIFFERENCE FROM THE PROTOTYPE, unchanged from the first version of
+// this tab: it shows "gap to IDEAL" against a curated reference-lap library.
+// That library is a Phase 2+ concept and does not exist, so this shows gap to
+// YOUR best — a real, computable number from data that exists. The column is
+// labelled for what it actually measures. When the ideal-lap library lands, the
+// label and the source change; the layout does not.
+//
+// The gap is a PERCENTAGE now, not seconds: half a second off at Monaco is a
+// different driver from half a second off at Le Mans, and one tier threshold
+// cannot mean both. See lib/progression.js.
 import { useEffect, useMemo, useState } from 'react'
 import { C, font } from '../theme'
 import { listSessions } from '../lib/sessions'
@@ -17,15 +24,15 @@ import { useAuth } from '../lib/auth'
 import FaultNotice from './FaultNotice'
 import { loadTiers, saveTiers } from '../lib/prefs'
 import {
-  ALL_CARS,
+  ALL,
   DEFAULT_TIERS,
-  carsOf,
+  applyFilters,
   closenessPct,
-  filterByCar,
   fmtGap,
   fmtLap,
   groupCombos,
   minMax,
+  optionsOf,
   tierNameFor,
 } from '../lib/progression'
 
@@ -33,53 +40,83 @@ import {
 // tier a gap falls in; the view decides what that looks like.
 const TIER_COLORS = {
   UNRANKED: C.dim,
-  ELITE: C.warn,
-  COMPETITIVE: C.silver3,
-  DEVELOPING: C.pink,
-  FOUNDATION: C.dim,
+  ELITE: C.pink,
+  COMPETITIVE: '#C77DFF',
+  DEVELOPING: C.warn,
+  FOUNDATION: C.silver2,
+}
+const TIER_ORDER = ['ELITE', 'COMPETITIVE', 'DEVELOPING', 'FOUNDATION']
+const TIER_KEY = { ELITE: 'elite', COMPETITIVE: 'competitive', DEVELOPING: 'developing' }
+
+const LABEL = { fontSize: 9, color: C.dim, letterSpacing: 1.2, fontWeight: 700, fontFamily: font.mono }
+
+const DIRECTION = {
+  improving: { glyph: '▼', text: 'improving', color: C.good },
+  slipping: { glyph: '▲', text: 'slipping', color: C.danger },
+  holding: { glyph: '▬', text: 'holding', color: C.silver2 },
 }
 
-const LABEL = { fontSize: 8, color: C.dim, letterSpacing: 1 }
-
-function Sparkline({ bests }) {
-  const { lo, hi } = minMax(bests)
+/**
+ * The gap series as a line. Lower is better, so the line falls as the driver
+ * improves — Y is NOT inverted, which is the one thing to get right here: a
+ * rising line would read as progress and mean the opposite.
+ */
+function Sparkline({ series, color, width = 130, height = 32 }) {
+  const points = (series ?? []).filter((v) => Number.isFinite(v))
+  if (points.length < 2) {
+    return (
+      <div style={{ width, height, display: 'flex', alignItems: 'center', fontSize: 10, color: C.dim }}>
+        one session
+      </div>
+    )
+  }
+  const pad = 3
+  const { lo, hi } = minMax(points)
+  const range = hi - lo || 1
+  const d = points
+    .map((p, i) => {
+      const x = pad + (i / (points.length - 1)) * (width - pad * 2)
+      const y = pad + ((p - lo) / range) * (height - pad * 2)
+      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+  const lastX = width - pad
+  const lastY = pad + ((points[points.length - 1] - lo) / range) * (height - pad * 2)
   return (
-    <>
-      <div
+    <svg width={width} height={height} role="img" aria-label={`Gap trend over ${points.length} sessions`} style={{ display: 'block' }}>
+      <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={lastX} cy={lastY} r="3" fill={color} />
+    </svg>
+  )
+}
+
+function Facet({ label, value, options, onChange }) {
+  const active = value !== ALL
+  return (
+    <label style={{ display: 'block' }}>
+      <div style={{ ...LABEL, marginBottom: 4 }}>{label.toUpperCase()}</div>
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         style={{
-          fontSize: 8,
-          color: C.dim,
-          letterSpacing: 1.5,
-          fontWeight: 700,
-          marginTop: 12,
-          marginBottom: 5,
+          background: C.panel,
+          color: active ? C.silver3 : C.dim,
+          border: `1px solid ${active ? C.pink : C.line}`,
+          borderRadius: 6,
+          padding: '7px 10px',
+          fontSize: 12,
+          fontFamily: font.ui,
+          minWidth: 150,
+          cursor: 'pointer',
         }}
       >
-        TREND
-      </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 34 }}>
-        {bests.map((b, i) => {
-          // Taller = faster. Floor at 25% so the slowest bar stays visible.
-          const h = hi === lo ? 100 : 25 + ((hi - b) / (hi - lo)) * 75
-          return (
-            <div
-              key={i}
-              title={fmtLap(b)}
-              style={{
-                flex: 1,
-                // Cap the width so a two-session history reads as a trend and
-                // not as two slabs the width of the card. flex:1 alone (the
-                // prototype's rule) only looks right at higher session counts.
-                maxWidth: 34,
-                height: `${h}%`,
-                background: i === bests.length - 1 ? C.pink : C.silver2,
-                borderRadius: 2,
-              }}
-            />
-          )
-        })}
-      </div>
-    </>
+        <option value={ALL}>{`All ${label.toLowerCase()}s`}</option>
+        {options.map((o) => (
+          <option key={o} value={o}>{o}</option>
+        ))}
+      </select>
+    </label>
   )
 }
 
@@ -87,9 +124,10 @@ export default function ProgressionTab() {
   const { user } = useAuth()
   const [sessions, setSessions] = useState(null)
   const [error, setError] = useState(null)
-  const [car, setCar] = useState(ALL_CARS)
   const [tiers, setTiers] = useState(DEFAULT_TIERS)
+  const [editing, setEditing] = useState(false)
   const [storageWarning, setStorageWarning] = useState(false)
+  const [filters, setFilters] = useState({ venue: ALL, carClass: ALL, sessionType: ALL })
 
   useEffect(() => {
     listSessions().then(setSessions).catch(setError)
@@ -111,20 +149,40 @@ export default function ProgressionTab() {
   }
 
   const combos = useMemo(() => groupCombos(sessions ?? []), [sessions])
-  const cars = useMemo(() => carsOf(combos), [combos])
-  const shown = useMemo(() => filterByCar(combos, car), [combos, car])
+  const shown = useMemo(() => applyFilters(combos, filters), [combos, filters])
+  const facets = useMemo(
+    () => ({
+      venue: optionsOf(combos, 'venue'),
+      carClass: optionsOf(combos, 'carClass'),
+      sessionType: optionsOf(combos, 'sessionType'),
+    }),
+    [combos],
+  )
 
-  // A car filter can outlive the car it points at (last session of that car
-  // deleted). Fall back to ALL rather than rendering a confusing empty list.
+  // A filter can outlive the thing it points at (the last session of that car
+  // class deleted). Drop it rather than rendering a permanently empty list the
+  // driver has no obvious way out of.
   useEffect(() => {
-    if (car !== ALL_CARS && !cars.includes(car)) setCar(ALL_CARS)
-  }, [cars, car])
+    setFilters((f) => {
+      const next = { ...f }
+      let changed = false
+      for (const key of ['venue', 'carClass', 'sessionType']) {
+        if (f[key] !== ALL && !facets[key].includes(f[key])) {
+          next[key] = ALL
+          changed = true
+        }
+      }
+      return changed ? next : f
+    })
+  }, [facets])
 
   if (error) return <FaultNotice error={error} />
   if (sessions === null) return <p style={{ color: C.dim }}>Loading…</p>
 
+  const filtered = Object.values(filters).some((v) => v !== ALL)
+
   const heading = (
-    <h2 style={{ color: C.silver3, fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>
+    <h2 style={{ color: C.silver3, fontSize: 18, fontWeight: 900, margin: 0, letterSpacing: '-0.01em' }}>
       Progression
     </h2>
   )
@@ -133,7 +191,7 @@ export default function ProgressionTab() {
     return (
       <div>
         {heading}
-        <p style={{ color: C.dim, fontSize: 13, maxWidth: 480, lineHeight: 1.6 }}>
+        <p style={{ color: C.dim, fontSize: 13, maxWidth: 480, lineHeight: 1.6, marginTop: 8 }}>
           Upload at least one session with a fastest-lap time to start tracking progress. Trends
           need two sessions of the same venue, car, and session type.
         </p>
@@ -143,208 +201,186 @@ export default function ProgressionTab() {
 
   return (
     <div>
-      {heading}
-      <p style={{ color: C.dim, fontSize: 13, margin: '0 0 16px' }}>
-        Venue × car × session type — best lap, gap to your own best, and trend.
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+        {heading}
+        <button
+          type="button"
+          onClick={() => setEditing(!editing)}
+          aria-pressed={editing}
+          style={{
+            background: editing ? C.pinkBg : 'transparent',
+            border: `1px solid ${editing ? C.pinkBd : C.line}`,
+            color: editing ? C.pink : C.silver2,
+            borderRadius: 7, padding: '7px 13px', fontSize: 12, fontWeight: 700,
+            fontFamily: font.ui, cursor: 'pointer',
+          }}
+        >
+          {editing ? 'Done' : 'Configure tiers'}
+        </button>
+      </div>
+      <p style={{ color: C.dim, fontSize: 13, margin: '0 0 18px', maxWidth: 620, lineHeight: 1.55 }}>
+        Gap to your own best across every class × track × session you have run. Lower is better —
+        closing the gap moves you up the tiers. There is no curated ideal-lap library yet, so this
+        measures you against you.
       </p>
 
-      {/* Car filter — only earns its space once there's more than one car. */}
-      {cars.length > 1 && (
-        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 14 }}>
-          <span style={{ ...LABEL, alignSelf: 'center', letterSpacing: 1.5, fontWeight: 700 }}>
-            CAR
-          </span>
-          {[ALL_CARS, ...cars].map((c) => {
-            const active = car === c
-            return (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setCar(c)}
-                aria-pressed={active}
-                style={{
-                  background: active ? C.pinkBg : 'transparent',
-                  border: `1px solid ${active ? C.pinkBd : C.line}`,
-                  color: active ? C.pink : C.dim,
-                  borderRadius: 999,
-                  padding: '4px 12px',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: 0.6,
-                  fontFamily: font.ui,
-                  cursor: 'pointer',
-                }}
-              >
-                {c === ALL_CARS ? `ALL (${combos.length})` : c}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      <div
-        style={{
-          background: C.panel,
-          border: `1px solid ${C.line}`,
-          borderRadius: 10,
-          padding: '13px 16px',
-          marginBottom: 16,
-        }}
-      >
-        <div
-          style={{ fontSize: 9, letterSpacing: 1, fontWeight: 700, color: C.pink, marginBottom: 10 }}
-        >
-          TIER THRESHOLDS · GAP TO YOUR BEST (SECONDS)
-        </div>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          {[
-            ['ELITE ≤', 'elite', C.warn],
-            ['COMPETITIVE ≤', 'competitive', C.silver3],
-            ['DEVELOPING ≤', 'developing', C.pink],
-          ].map(([lab, key, col]) => (
-            <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <span style={{ fontSize: 8, color: col, letterSpacing: 1, fontWeight: 700 }}>
-                {lab}
-              </span>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={tiers[key]}
-                onChange={(e) => updateTier(key, e.target.value)}
-                style={{
-                  width: 80,
-                  background: C.bg,
-                  border: `1px solid ${C.line}`,
-                  borderRadius: 6,
-                  padding: '6px 9px',
-                  color: C.silver3,
-                  fontSize: 12,
-                  fontFamily: font.mono,
-                }}
-              />
-            </label>
-          ))}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <span style={{ fontSize: 8, color: C.silver2, letterSpacing: 1, fontWeight: 700 }}>
-              BEYOND →
-            </span>
-            <span style={{ fontSize: 11, color: C.silver2, padding: '6px 0' }}>FOUNDATION</span>
-          </div>
-        </div>
-        <div style={{ fontSize: 9, color: C.dim, marginTop: 9, fontStyle: 'italic' }}>
-          Saved to this browser. Gap bar fills relative to the Developing cutoff.
-        </div>
-        {storageWarning && (
-          <div style={{ fontSize: 9, color: C.warn, marginTop: 5 }}>
-            Couldn’t save — browser storage is unavailable, so these reset on reload.
-          </div>
-        )}
-      </div>
-
-      <div style={{ display: 'grid', gap: 11 }}>
-        {shown.map((c) => {
-          const tierName = tierNameFor(c.gap, tiers, c.count)
-          const tierColor = TIER_COLORS[tierName]
-          const gapPct = closenessPct(c.gap, tiers)
-          return (
-            <div
-              key={`${c.venue}|${c.car}|${c.sessionType}`}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <Facet label="Track" value={filters.venue} options={facets.venue}
+               onChange={(v) => setFilters({ ...filters, venue: v })} />
+        <Facet label="Class" value={filters.carClass} options={facets.carClass}
+               onChange={(v) => setFilters({ ...filters, carClass: v })} />
+        <Facet label="Session" value={filters.sessionType} options={facets.sessionType}
+               onChange={(v) => setFilters({ ...filters, sessionType: v })} />
+        <div style={{ flex: 1 }} />
+        <div style={{ fontFamily: font.mono, fontSize: 11, color: C.dim, paddingBottom: 8 }}>
+          {shown.length} of {combos.length} shown
+          {filtered && (
+            <button
+              type="button"
+              onClick={() => setFilters({ venue: ALL, carClass: ALL, sessionType: ALL })}
               style={{
-                background: C.panel,
-                border: `1px solid ${C.line}`,
-                borderRadius: 10,
-                padding: '14px 16px',
+                marginLeft: 12, background: 'transparent', border: `1px solid ${C.line}`,
+                color: C.silver2, borderRadius: 6, padding: '4px 10px', fontSize: 10,
+                fontFamily: font.mono, cursor: 'pointer',
               }}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  marginBottom: 11,
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.silver3 }}>
-                    {c.venue} · {c.sessionType}
-                  </div>
-                  <div style={{ fontSize: 10, color: C.dim, marginTop: 1 }}>
-                    {c.car} · {c.count} session{c.count > 1 ? 's' : ''}
-                  </div>
-                </div>
-                <span
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    letterSpacing: 1.5,
-                    color: tierColor,
-                    border: `1px solid ${tierColor}55`,
-                    borderRadius: 5,
-                    padding: '3px 9px',
-                  }}
-                >
-                  {tierName}
+              CLEAR
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Tier legend, which becomes the editor rather than opening a second
+          surface: the thing you are reading is the thing you adjust. */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+        {TIER_ORDER.map((name) => {
+          const color = TIER_COLORS[name]
+          const key = TIER_KEY[name]
+          return (
+            <div
+              key={name}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                border: `1px solid ${color}55`, background: `${color}12`,
+                borderRadius: 8, padding: '7px 12px',
+              }}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: 99, background: color }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.silver3 }}>
+                {name[0] + name.slice(1).toLowerCase()}
+              </span>
+              {editing && key ? (
+                <label style={{ fontFamily: font.mono, fontSize: 11, color: C.dim }}>
+                  ≤
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    aria-label={`${name} threshold`}
+                    value={tiers[key]}
+                    onChange={(e) => updateTier(key, e.target.value)}
+                    style={{
+                      width: 52, marginLeft: 4, background: C.bg, color: C.silver3,
+                      border: `1px solid ${C.line}`, borderRadius: 4, padding: '2px 5px',
+                      fontFamily: font.mono, fontSize: 11,
+                    }}
+                  />
+                  %
+                </label>
+              ) : (
+                <span style={{ fontFamily: font.mono, fontSize: 10, color: C.dim }}>
+                  {key ? `≤${tiers[key]}%` : 'rest'}
                 </span>
-              </div>
-              <div style={{ display: 'flex', gap: 22, alignItems: 'center', marginBottom: 11 }}>
-                <div>
-                  <div style={LABEL}>YOUR BEST</div>
-                  <div style={{ fontSize: 14, color: C.silver3, fontFamily: font.mono }}>
-                    {fmtLap(c.bestEver)}
-                  </div>
-                </div>
-                <div>
-                  <div style={LABEL}>LATEST GAP</div>
-                  <div
-                    style={{
-                      fontSize: 14,
-                      color: c.gap <= 0.0005 ? C.good : C.pink,
-                      fontFamily: font.mono,
-                    }}
-                  >
-                    {fmtGap(c.gap)}
-                  </div>
-                </div>
-                <div>
-                  <div style={LABEL}>TREND</div>
-                  <div
-                    style={{
-                      fontSize: 14,
-                      color: c.trend == null ? C.dim : c.trend < 0 ? C.good : C.danger,
-                      fontFamily: font.mono,
-                    }}
-                  >
-                    {c.trend == null ? '—' : `${c.trend < 0 ? '▼' : '▲'} ${Math.abs(c.trend).toFixed(3)}s`}
-                  </div>
-                </div>
-              </div>
-              <div
-                style={{
-                  fontSize: 8,
-                  color: C.dim,
-                  letterSpacing: 1.5,
-                  fontWeight: 700,
-                  marginBottom: 5,
-                }}
-              >
-                CLOSENESS
-              </div>
-              <div style={{ height: 6, background: C.line, borderRadius: 3, overflow: 'hidden' }}>
-                <div
-                  style={{
-                    width: `${gapPct}%`,
-                    height: '100%',
-                    background: `linear-gradient(90deg, ${C.pink}, ${C.warn})`,
-                    transition: 'width .4s',
-                  }}
-                />
-              </div>
-              {c.bests.length > 1 && <Sparkline bests={c.bests} />}
+              )}
             </div>
           )
         })}
+        {editing && (
+          <span style={{ fontSize: 10, color: C.dim, fontStyle: 'italic' }}>
+            Saved to this browser only.
+          </span>
+        )}
       </div>
+      {storageWarning && (
+        <div style={{ fontSize: 10, color: C.warn, marginTop: -12, marginBottom: 14 }}>
+          Couldn’t save — browser storage is unavailable, so these reset on reload.
+        </div>
+      )}
+
+      {/* A list, not a stack of divs: the rows are one enumerable thing, and
+          the tier names repeat in the legend above — without a named region
+          there is no way to ask for "the tier on the COTA row". */}
+      <ul aria-label="Progression by combination"
+          style={{ display: 'grid', gap: 10, listStyle: 'none', margin: 0, padding: 0 }}>
+        {shown.length === 0 && (
+          <li style={{ padding: 26, textAlign: 'center', color: C.dim, border: `1px dashed ${C.line}`, borderRadius: 10, fontSize: 13 }}>
+            No sessions match these filters. Clear a filter to see more.
+          </li>
+        )}
+        {shown.map((c) => {
+          const tierName = tierNameFor(c.gapPct, tiers, c.count)
+          const color = TIER_COLORS[tierName]
+          const dir = DIRECTION[c.direction]
+          return (
+            <li
+              key={`${c.venue}|${c.car}|${c.sessionType}`}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(180px, 1.6fr) minmax(120px, 1fr) 0.8fr 140px minmax(110px, 0.9fr)',
+                alignItems: 'center',
+                gap: 16,
+                background: C.panel,
+                border: `1px solid ${C.line}`,
+                borderRadius: 10,
+                padding: '14px 18px',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.silver3 }}>{c.venue}</div>
+                <div style={{ fontFamily: font.mono, fontSize: 11, color: C.dim }}>
+                  {[c.carClass, c.car, c.sessionType].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+
+              <div>
+                {/* Labelled for what it measures. "GAP TO IDEAL" would be a
+                    claim about a reference library that does not exist. */}
+                <div style={LABEL}>GAP TO YOUR BEST</div>
+                <div style={{ fontFamily: font.mono, fontSize: 18, fontWeight: 800, color }}>
+                  {c.gapPct == null ? '—' : `${c.gapPct.toFixed(2)}%`}
+                </div>
+                <div style={{ fontFamily: font.mono, fontSize: 10, color: C.dim }}>
+                  {fmtGap(c.gap)} · best {fmtLap(c.bestEver)}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  justifySelf: 'start', fontSize: 11, fontWeight: 700, letterSpacing: 0.6,
+                  color, border: `1px solid ${color}66`, background: `${color}14`,
+                  borderRadius: 6, padding: '4px 10px',
+                }}
+              >
+                {tierName[0] + tierName.slice(1).toLowerCase()}
+              </div>
+
+              <Sparkline series={c.series} color={color} />
+
+              <div style={{ justifySelf: 'end', textAlign: 'right' }}>
+                <div style={{ fontFamily: font.mono, fontSize: 11, color: dir ? dir.color : C.dim }}>
+                  {dir ? `${dir.glyph} ${dir.text}` : 'no trend yet'}
+                </div>
+                <div style={{ fontFamily: font.mono, fontSize: 10, color: C.dim, marginTop: 2 }}>
+                  {c.count} session{c.count > 1 ? 's' : ''}
+                </div>
+                <div style={{ height: 4, background: C.line, borderRadius: 2, overflow: 'hidden', marginTop: 6 }}>
+                  <div style={{ width: `${closenessPct(c.gapPct, tiers)}%`, height: '100%', background: color, transition: 'width .4s' }} />
+                </div>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

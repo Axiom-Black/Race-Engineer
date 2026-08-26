@@ -1,15 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import {
-  ALL_CARS,
+  ALL,
   DEFAULT_TIERS,
-  carsOf,
+  applyFilters,
   closenessPct,
-  filterByCar,
   fmtGap,
   fmtLap,
   groupCombos,
   minMax,
+  optionsOf,
+  pctOff,
   tierNameFor,
+  trendDirection,
 } from './progression.js'
 
 // Helper: a persisted session row, only the fields the rollup reads.
@@ -17,6 +19,7 @@ function sess(over = {}) {
   return {
     venue: 'COTA',
     car: 'Porsche 963',
+    car_class: 'Hypercar',
     session_type: 'Practice',
     fastest_lap_s: 100,
     created_at: '2026-08-01T00:00:00Z',
@@ -89,33 +92,87 @@ describe('groupCombos', () => {
   })
 })
 
-describe('car filter', () => {
+describe('facet filters', () => {
   const combos = groupCombos([
-    sess({ car: 'Porsche 963' }),
-    sess({ car: 'Ferrari 499P' }),
-    sess({ car: 'Porsche 963', venue: 'Spa' }),
+    sess({ car: 'Porsche 963', car_class: 'Hypercar' }),
+    sess({ car: 'Ferrari 499P', car_class: 'Hypercar' }),
+    sess({ car: 'Porsche 911 RSR', car_class: 'GTE', venue: 'Spa' }),
   ])
 
-  it('lists distinct cars alphabetically', () => {
-    expect(carsOf(combos)).toEqual(['Ferrari 499P', 'Porsche 963'])
+  it("lists each facet's distinct values alphabetically", () => {
+    expect(optionsOf(combos, 'venue')).toEqual(['COTA', 'Spa'])
+    expect(optionsOf(combos, 'carClass')).toEqual(['GTE', 'Hypercar'])
   })
 
-  it('passes everything through for ALL', () => {
-    expect(filterByCar(combos, ALL_CARS)).toHaveLength(3)
+  it('drops blanks rather than offering an empty option', () => {
+    expect(optionsOf(groupCombos([sess({ car_class: null })]), 'carClass')).toEqual([])
+    expect(optionsOf(null, 'venue')).toEqual([])
   })
 
-  it('narrows to a single car', () => {
-    const only = filterByCar(combos, 'Porsche 963')
-    expect(only).toHaveLength(2)
-    expect(only.every((c) => c.car === 'Porsche 963')).toBe(true)
+  it('passes everything through when nothing is filtered', () => {
+    expect(applyFilters(combos, { venue: ALL, carClass: ALL, sessionType: ALL })).toHaveLength(3)
+    expect(applyFilters(combos, {})).toHaveLength(3)
   })
 
-  it('yields an empty list for a car with no sessions', () => {
-    expect(filterByCar(combos, 'Cadillac V-Series.R')).toEqual([])
+  it('narrows on one facet, and on several at once', () => {
+    expect(applyFilters(combos, { carClass: 'Hypercar' })).toHaveLength(2)
+    expect(applyFilters(combos, { venue: 'Spa' })).toHaveLength(1)
+    expect(applyFilters(combos, { carClass: 'Hypercar', venue: 'Spa' })).toHaveLength(0)
   })
 
-  it('ignores missing car names rather than listing a blank chip', () => {
-    expect(carsOf(groupCombos([sess({ car: null })]))).toEqual([])
+  it('yields nothing for a value no combo carries', () => {
+    // An empty result is the honest answer; passing everything through would
+    // show a driver rows their filter excluded.
+    expect(applyFilters(combos, { venue: 'Le Mans' })).toEqual([])
+  })
+})
+
+describe('gap as a percentage', () => {
+  it('measures the gap against the lap, so circuits are comparable', () => {
+    // Half a second off at Monaco is a different driver from half a second off
+    // at Le Mans; one threshold in seconds cannot mean both.
+    expect(pctOff(101, 100)).toBe(1)
+    expect(pctOff(100, 100)).toBe(0)
+    expect(pctOff(202, 200)).toBe(1)
+  })
+
+  it('returns null rather than dividing by a missing or zero best', () => {
+    expect(pctOff(100, 0)).toBeNull()
+    expect(pctOff(null, 100)).toBeNull()
+    expect(pctOff(100, null)).toBeNull()
+  })
+
+  it('rides on every combo, alongside the seconds figure', () => {
+    const combos = groupCombos([
+      sess({ fastest_lap_s: 100, created_at: '2026-08-01T00:00:00Z' }),
+      sess({ fastest_lap_s: 101, created_at: '2026-08-02T00:00:00Z' }),
+    ])
+    expect(combos[0].gap).toBe(1)
+    expect(combos[0].gapPct).toBe(1)
+    expect(combos[0].series).toEqual([0, 1])
+  })
+})
+
+describe('trendDirection', () => {
+  it('reads a closing gap as improving and a widening one as slipping', () => {
+    expect(trendDirection([4, 3, 2, 1])).toBe('improving')
+    expect(trendDirection([1, 2, 3, 4])).toBe('slipping')
+  })
+
+  it('does not call one bad day a regression', () => {
+    // The gap has closed across the window even though the last run was worse.
+    // Labelling that a regression tells a driver to change what is working.
+    expect(trendDirection([5, 4, 1, 1.2])).toBe('improving')
+  })
+
+  it('says holding when nothing has moved', () => {
+    expect(trendDirection([2, 2, 2])).toBe('holding')
+  })
+
+  it('has no direction until there is history to have one', () => {
+    expect(trendDirection([1])).toBeNull()
+    expect(trendDirection([])).toBeNull()
+    expect(trendDirection(null)).toBeNull()
   })
 })
 
@@ -135,6 +192,9 @@ describe('tier assignment', () => {
     expect(tierNameFor(2.5, DEFAULT_TIERS)).toBe('DEVELOPING')
     expect(tierNameFor(9.0, DEFAULT_TIERS)).toBe('FOUNDATION')
     expect(tierNameFor(null, DEFAULT_TIERS)).toBe('UNRANKED')
+    // A combo whose best lap is unusable yields a non-finite percentage; that
+    // is unranked, not FOUNDATION, because nothing was measured.
+    expect(tierNameFor(NaN, DEFAULT_TIERS)).toBe('UNRANKED')
   })
 
   it('treats each threshold as inclusive at its boundary', () => {
