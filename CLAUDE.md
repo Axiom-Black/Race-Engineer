@@ -151,9 +151,18 @@ is "done").
 - `.svm` is INI-style with `Key=N//human value` lines (CRLF); the real value
   lives in the `//` comment, the integer is a click-index. Energy branch:
   Hypercar/LMGT3 carry `VirtualEnergySetting`; GTE/LMP2/LMP3 carry fuel.
-- Corner auto-detection (GPS curvature) reads multi-apex complexes as single
-  corners (16 detected at COTA vs official 20) — acceptable for the pilot;
-  the curated corner registry fixes it in Phase 3.
+- **Corners are detected at INGEST from `G Force Lat` at its own 25 Hz**
+  (`lib/cornerDetect.js`), not from the persisted trace — and the result is
+  stored on each trace lap as distance fractions. A corner is the car carrying
+  lateral load, not a shape in a downsampled polyline: GPS is only 5 Hz (~11 m
+  at speed) while lateral G is 25 Hz (~2.2 m at speed, sub-metre in a corner).
+  This finds **20 corners on every lap of the COTA export against the circuit's
+  official 20**, where trace geometry topped out at 12 (uniform trace) and 15
+  (importance-weighted). Every threshold is a *fraction* of the session's
+  lateral capability and every duration is in *seconds* — never an absolute G
+  value or a sample count, or it stops travelling to another car or exporter.
+  `lib/corners.js`'s curvature detector is now a FALLBACK for sessions
+  ingested before this; do not extend it or tune it.
 - GPS channels are game-world coordinates dressed as lat/lon (nominally in
   the Pacific). Relative positions are exact; never overlay on real maps.
 - **`trace.aspect` is `lonSpan / latSpan` — WIDTH over height**, not the other
@@ -170,9 +179,7 @@ is "done").
   equal intervals of the weighted arc length. At COTA corners land ~4.9 m apart
   and straights ~35 m, for the same 400 points and the same stored bytes.
   **Anything that computes position as `i / (n - 1)` is now wrong** — read
-  `p.d`, and invert it with `nearestIndex` (`lib/traceAxis.js`). Corner
-  detection went 12 → 15 at COTA; every detection default in `lib/corners.js`
-  was re-swept and must not be ported back from an older revision.
+  `p.d`, and invert it with `nearestIndex` (`lib/traceAxis.js`).
 - **Replay runs on SECONDS, never on sample indices** (`lib/replay.js`). With
   corners holding 3–4× the points of a straight, a constant index rate crawls
   through every corner and fires down every straight — the exact inverse of what

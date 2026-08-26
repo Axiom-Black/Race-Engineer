@@ -20,7 +20,7 @@ import ChannelsTab from './ChannelsTab'
 import InstrumentCluster from './InstrumentCluster'
 import CircuitMap from './CircuitMap'
 import MapInstruments from './MapInstruments'
-import { detectCorners, cornerAt } from '../lib/corners'
+import { resolveCorners, cornerAt } from '../lib/corners'
 import { distanceAxis, xAt, nearestIndex } from '../lib/traceAxis'
 import { lapTimeAxis, advanceTime, indexAtTime, timeAtIndex } from '../lib/replay'
 import { buildComparison } from '../lib/sessionCompare'
@@ -434,7 +434,7 @@ export default function SessionReport({ sessionId, sessions = [], onBack }) {
         />
       )}
       {tab === 'Track Map' && trace && (
-        <TrackMapTab pts={pts} aspect={trace.aspect} cursor={cursor} setCursor={setCursor} lapSeconds={lapSeconds} lengthKm={session?.length_km} />
+        <TrackMapTab pts={pts} persistedCorners={traceLap?.corners} aspect={trace.aspect} cursor={cursor} setCursor={setCursor} lapSeconds={lapSeconds} lengthKm={session?.length_km} />
       )}
     </div>
   )
@@ -943,11 +943,13 @@ function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor, lapSe
 }
 
 // ── Track Map ─────────────────────────────────────────────────────
-function TrackMapTab({ pts, aspect, cursor, setCursor, lapSeconds, lengthKm }) {
+function TrackMapTab({ pts, persistedCorners, aspect, cursor, setCursor, lapSeconds, lengthKm }) {
   const replay = useReplay(pts, lapSeconds, setCursor)
-  // Detected once here and shared with the map AND the panel, so the badge the
-  // map lights up and the corner the panel names can never disagree.
-  const corners = useMemo(() => detectCorners(pts), [pts])
+  // Resolved once here and shared with the map AND the panel, so the badge the
+  // map lights up and the corner the panel names can never disagree. The
+  // persisted set — detected at ingest from full-rate lateral G — is preferred;
+  // sessions uploaded before that existed fall back to the trace detector.
+  const corners = useMemo(() => resolveCorners(persistedCorners, pts), [persistedCorners, pts])
   const active = cornerAt(corners, cursor)
   if (!pts.length) return <div style={{ color: C.dim, padding: 20 }}>No trace for this lap.</div>
   return (

@@ -9,7 +9,7 @@
 // gate, so this is deliberately a SMOKE test first and a feature test second:
 // merely importing and mounting it would have failed on that mistake.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 const getSession = vi.fn()
@@ -85,6 +85,24 @@ const PT = (i, over = {}) => ({
   r: 7400, sl: [1.2, 1.4, 6.0, 14.5], d: i / 9, ...over,
 })
 const TRACE = { aspect: 0.581, laps: [{ lap: 2, pts: Array.from({ length: 10 }, (_, i) => PT(i)) }] }
+
+// A trace carrying the corner set ingest now persists, detected at full rate.
+const TRACE_WITH_CORNERS = {
+  aspect: 0.581,
+  laps: [{
+    lap: 2,
+    pts: Array.from({ length: 20 }, (_, i) => PT(i, {
+      d: i / 19,
+      x: 0.5 + 0.4 * Math.cos((i / 20) * 2 * Math.PI),
+      y: 0.5 + 0.4 * Math.sin((i / 20) * 2 * Math.PI),
+      s: 100 + (i % 5) * 20,
+    })),
+    corners: [
+      { n: 1, dStart: 0.08, d: 0.12, dEnd: 0.18, dir: 'left', peakG: 1.7, minSpeed: 63, gear: 2 },
+      { n: 2, dStart: 0.55, d: 0.60, dEnd: 0.66, dir: 'right', peakG: 1.3, minSpeed: 147, gear: 4 },
+    ],
+  }],
+}
 
 describe('the Instruments cluster', () => {
   beforeEach(() => { getSessionTrace.mockResolvedValue(TRACE) })
@@ -271,6 +289,21 @@ describe('the Track Map', () => {
     await renderReport()
     await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
     expect(await screen.findByText(/not the circuit's official numbering/)).toBeInTheDocument()
+  })
+
+  it('DRAWS THE PERSISTED CORNERS rather than re-deriving them from the trace', async () => {
+    // Corners are detected at ingest from lateral G at 25 Hz — 8.5x the
+    // trace's resolution — and stored. Re-deriving them here would throw that
+    // away and put the map back on the 400-point ceiling it was moved off.
+    getSessionTrace.mockResolvedValue(TRACE_WITH_CORNERS)
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(await screen.findByText('2 corners detected')).toBeInTheDocument()
+    // 63 km/h and 4th gear are STORED figures. A re-derivation from this
+    // synthetic trace could not produce them.
+    const svg = screen.getByLabelText('Track map')
+    expect(within(svg).getByText('63')).toBeInTheDocument()
+    expect(within(svg).getByText('4')).toBeInTheDocument()
   })
 
   it('says so when the lap logged no GPS', async () => {

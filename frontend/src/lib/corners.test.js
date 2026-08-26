@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   curvatureAt, outwardNormal, speedDips, detectCorners, topSpeedIndex,
-  relaxLabels, cornerAt, DEFAULTS,
+  relaxLabels, cornerAt, cornersFromPersisted, resolveCorners, DEFAULTS,
 } from './corners.js'
 
 /** A closed circle of `n` points — constant curvature everywhere. */
@@ -265,5 +265,83 @@ describe('cornerAt', () => {
     expect(cornerAt([], 5)).toBeNull()
     expect(cornerAt(null, 5)).toBeNull()
     expect(cornerAt(corners, null)).toBeNull()
+  })
+})
+
+// A square-ish lap whose points carry a real distance axis, as ingest writes it.
+const TRACE = Array.from({ length: 40 }, (_, i) => ({
+  x: 0.5 + 0.4 * Math.cos((i / 40) * 2 * Math.PI),
+  y: 0.5 + 0.4 * Math.sin((i / 40) * 2 * Math.PI),
+  s: 100 + (i % 7) * 10,
+  g: 3,
+  d: i / 39,
+}))
+
+const PERSISTED = [
+  { n: 1, dStart: 0.10, d: 0.12, dEnd: 0.15, dir: 'left', peakG: 1.6, minSpeed: 88, gear: 2 },
+  { n: 2, dStart: 0.50, d: 0.54, dEnd: 0.58, dir: 'right', peakG: 1.2, minSpeed: 140, gear: 4 },
+]
+
+describe('cornersFromPersisted', () => {
+  it('resolves stored distances back to trace indices', () => {
+    const out = cornersFromPersisted(PERSISTED, TRACE)
+    expect(out).toHaveLength(2)
+    // 0.12 of the way round a 40-point lap.
+    expect(out[0].apexIdx).toBe(5)
+    expect(out[1].apexIdx).toBe(21)
+  })
+
+  it('carries the figures the badge shows, unchanged', () => {
+    const [first] = cornersFromPersisted(PERSISTED, TRACE)
+    expect(first.minSpeed).toBe(88)
+    expect(first.gearAtApex).toBe(2)
+    expect(first.direction).toBe('left')
+    expect(first.peakG).toBe(1.6)
+  })
+
+  it('gives each corner an outward normal so its label sits off the track', () => {
+    for (const c of cornersFromPersisted(PERSISTED, TRACE)) {
+      expect(Number.isFinite(c.nx)).toBe(true)
+      expect(Number.isFinite(c.ny)).toBe(true)
+      expect(Math.hypot(c.nx, c.ny)).toBeCloseTo(1, 6)
+    }
+  })
+
+  it('keeps start <= apex <= end even if the stored bounds disagree', () => {
+    const odd = [{ n: 1, dStart: 0.9, d: 0.2, dEnd: 0.05 }]
+    const [c] = cornersFromPersisted(odd, TRACE)
+    expect(c.startIdx).toBeLessThanOrEqual(c.apexIdx)
+    expect(c.endIdx).toBeGreaterThanOrEqual(c.apexIdx)
+  })
+
+  it('drops a corner with no usable apex rather than pinning it to index 0', () => {
+    // A badge on the wrong piece of track is worse than one corner not shown.
+    expect(cornersFromPersisted([{ n: 1, d: null }], TRACE)).toEqual([])
+    expect(cornersFromPersisted([{ n: 1 }], TRACE)).toEqual([])
+  })
+
+  it('returns nothing when there is nothing to resolve against', () => {
+    expect(cornersFromPersisted(PERSISTED, [])).toEqual([])
+    expect(cornersFromPersisted([], TRACE)).toEqual([])
+    expect(cornersFromPersisted(null, TRACE)).toEqual([])
+  })
+})
+
+describe('resolveCorners', () => {
+  it('prefers the persisted set — detected at ingest at full rate', () => {
+    const out = resolveCorners(PERSISTED, TRACE)
+    expect(out).toHaveLength(2)
+    expect(out[0].minSpeed).toBe(88) // a stored figure, not a recomputed one
+  })
+
+  it('falls back to the trace detector for sessions uploaded before it existed', () => {
+    // Those sessions are not faulty and their maps are not wrong — coarser, and
+    // silently so, because our release history is not news about their driving.
+    const legacy = resolveCorners(undefined, circle(300, 0.02))
+    expect(legacy.length).toBeGreaterThan(0)
+  })
+
+  it('falls back rather than showing an empty map on an empty stored set', () => {
+    expect(resolveCorners([], circle(300, 0.02)).length).toBeGreaterThan(0)
   })
 })
