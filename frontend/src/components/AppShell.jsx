@@ -6,10 +6,11 @@
 //     UploadDropzone.jsx, SessionDetail.jsx's channel inventory)
 //   - RaceEngineeringAgent_v2.jsx: the domain-agent structure referenced in
 //     the Race Engineer placeholder (dark this phase, not implemented)
-// Race Engineer and Libraries are genuinely disabled tabs, not faked ones —
+// Race Engineer opens the Engineering Run workspace, which reports which of the
+// ten agents a driver's export can actually feed and runs no analysis at all —
 // standing bar: no faked capability; CLAUDE.md: resist shipping the agent
-// early. Their content explains why they're dark rather than pretending
-// to work.
+// early. Libraries stays a genuinely disabled tab that explains why it is dark
+// rather than pretending to work.
 import { useState } from 'react'
 import { C, font } from '../theme'
 import { useAuth } from '../lib/auth'
@@ -17,12 +18,13 @@ import { Wordmark } from './ui'
 import TabBar from './TabBar'
 import SessionsTab from './SessionsTab'
 import ProgressionTab from './ProgressionTab'
-import { RaceEngineerPlaceholder, LibrariesPlaceholder } from './PhasePlaceholder'
+import EngineeringRunTab from './EngineeringRunTab'
+import { LibrariesPlaceholder } from './PhasePlaceholder'
 
 const TAB_CONTENT = {
   sessions: SessionsTab,
   progression: ProgressionTab,
-  engineer: RaceEngineerPlaceholder,
+  engineer: EngineeringRunTab,
   libraries: LibrariesPlaceholder,
 }
 
@@ -107,7 +109,7 @@ export default function AppShell() {
 
       <TabBar active={tab} onChange={setTab} />
 
-      <main style={{ maxWidth: 960, margin: '0 auto', padding: '32px 24px' }}>
+      <main style={{ maxWidth: tab === 'engineer' ? 1180 : 960, margin: '0 auto', padding: '32px 24px' }}>
         <TabContent />
       </main>
     </div>

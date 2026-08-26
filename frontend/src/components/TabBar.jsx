@@ -1,16 +1,20 @@
 // ByteCraft Racing — top-level app navigation.
 // Ported from the prototype's tab-bar pattern (ByteCraft_v12_Merged.jsx
 // DriverApp: SESSIONS / RACE ENGINEER / PROGRESSION / LIBRARIES) per the
-// referenced navigation workflow. Race Engineer and Libraries are genuinely
-// disabled, not faked — Phase 2/3 concepts CLAUDE.md keeps dark in the pilot
-// (standing bar: no faked capability). Their tabs exist so the navigation
-// vocabulary matches the eventual product; clicking them explains why.
+// referenced navigation workflow.
+//
+// RACE ENGINEER IS LIVE, THE ANALYSIS IS NOT. The tab opens the Engineering Run
+// workspace (EngineeringRunTab.jsx), which checks a driver's export against
+// what each of the ten agents reads. It runs no analysis and says so — the
+// agent stays dark in the pilot by decision. Libraries is still genuinely
+// disabled: there is nothing behind it yet, and a tab that opens onto a promise
+// is worse than one that says "Phase 3".
 import { C, font } from '../theme'
 
 const TABS = [
   { id: 'sessions', label: 'SESSIONS' },
   { id: 'progression', label: 'PROGRESSION' },
-  { id: 'engineer', label: 'RACE ENGINEER', disabled: true, phase: 'Phase 2' },
+  { id: 'engineer', label: 'RACE ENGINEER' },
   { id: 'libraries', label: 'LIBRARIES', disabled: true, phase: 'Phase 3' },
 ]
 
@@ -22,7 +26,7 @@ export default function TabBar({ active, onChange }) {
         return (
           <div
             key={t.id}
-            onClick={() => onChange(t.id)}
+            onClick={() => { if (!t.disabled) onChange(t.id) }}
             title={t.disabled ? `Coming in ${t.phase} — dark by design in the pilot` : undefined}
             style={{
               cursor: 'pointer',
