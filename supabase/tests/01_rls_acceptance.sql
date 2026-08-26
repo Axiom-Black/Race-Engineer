@@ -137,5 +137,178 @@ begin
   raise notice 'G3.6 ok — cross-tenant overwrite affected 0 rows';
 end $$;
 
+-- ════════════════════════════════════════════════════════════════
+-- W0.3 · track_notes — the first driver-AUTHORED data in the product, and the
+-- only table whose rows are meant to outlive the row they came from. Every
+-- check below is a property the design would silently lose if the migration
+-- were "simplified".
+-- ════════════════════════════════════════════════════════════════
+
+-- A writes a note against a place on the track. `session_key` is the session id
+-- as text, deliberately separate from the FK — see G3.10 for why.
+insert into public.track_notes
+  (track_key, track_label, anchor_key, d_start, d_end, corner_label, body,
+   source_session_id, session_key, car, ambient_c, track_c)
+select 'circuit of the americas', 'Circuit of the Americas', 'd0024',
+       0.1200, 0.1350, 'T5', 'Brake 10 m later, the kerb takes it.',
+       id, id::text, 'Ferrari 499P', 29.5, 39.0
+  from public.sessions limit 1;
+
+-- G3.7 — REVISE WITHIN A SESSION. A second note on the same anchor from the
+-- same session must collide, because within one session the driver is refining
+-- one observation, not accumulating two. (The client upserts on this key.)
+do $$
+begin
+  insert into public.track_notes
+    (track_key, anchor_key, d_start, d_end, body, source_session_id, session_key)
+  select 'circuit of the americas', 'd0024', 0.1210, 0.1360,
+         'Actually brake 5 m later.', id, id::text
+    from public.sessions limit 1;
+  raise exception 'G3.7 FAIL: a second note on one anchor in one session was allowed';
+exception when unique_violation then
+  raise notice 'G3.7 ok — same session + same anchor collides (revise in place)';
+end $$;
+
+-- G3.8 — ACCUMULATE ACROSS SESSIONS. The same anchor from a DIFFERENT session
+-- must be permitted: T4 in the wet and T4 in the dry are both true and neither
+-- should overwrite the other. A unique key without `session_key` in it would
+-- fail this.
+insert into public.track_notes
+  (track_key, anchor_key, d_start, d_end, body, session_key, car, ambient_c)
+values ('circuit of the americas', 'd0024', 0.1190, 0.1340,
+        'Cooler track — it does not take the kerb.',
+        'aaaaaaaa-0000-0000-0000-000000000002', 'Oreca 07 Gibson', 14.0);
+
+do $$ begin
+  if (select count(*) from public.track_notes where anchor_key = 'd0024') <> 2 then
+    raise exception 'G3.8 FAIL: expected 2 accumulated notes on one anchor, got %',
+      (select count(*) from public.track_notes where anchor_key = 'd0024');
+  end if;
+  raise notice 'G3.8 ok — a new session accumulates a revision alongside';
+end $$;
+
+-- An anchor must be a real span on the lap. Fractions, not metres — so the
+-- bounds are absolute and a value outside them is a bug, not a long circuit.
+do $$
+begin
+  insert into public.track_notes
+    (track_key, anchor_key, d_start, d_end, body, session_key)
+  values ('cota', 'd0100', 0.9, 0.4, 'backwards', 'x');
+  raise exception 'FAIL: anchor_ordered allowed d_start > d_end';
+exception when check_violation then
+  raise notice 'anchor bounds ok — reversed span rejected';
+end $$;
+
+do $$
+begin
+  insert into public.track_notes
+    (track_key, anchor_key, d_start, d_end, body, session_key)
+  values ('cota', 'd0100', 0.4, 1.4, 'off the end of the lap', 'x');
+  raise exception 'FAIL: d_end > 1 allowed — a distance FRACTION cannot exceed 1';
+exception when check_violation then
+  raise notice 'anchor bounds ok — fraction > 1 rejected';
+end $$;
+
+do $$
+begin
+  insert into public.track_notes
+    (track_key, anchor_key, d_start, d_end, body, session_key)
+  values ('cota', 'd0100', 0.4, 0.5, '   ', 'x');
+  raise exception 'FAIL: a whitespace-only note body was accepted';
+exception when check_violation then
+  raise notice 'body ok — empty note rejected';
+end $$;
+
+-- G3.9 — THE NOTE OUTLIVES THE SESSION. Deleting the recording must not delete
+-- what the driver learned from it. This is the single assertion that separates
+-- `on delete set null` from the `cascade` used for laps — get it wrong and a
+-- driver clearing space silently destroys their own track guide.
+do $$
+declare kept int; orphaned int;
+begin
+  delete from public.sessions;
+  select count(*) into kept from public.track_notes;
+  if kept <> 2 then
+    raise exception 'G3.9 FAIL: deleting the session destroyed % of 2 notes', 2 - kept;
+  end if;
+  select count(*) into orphaned
+    from public.track_notes where source_session_id is null;
+  if orphaned <> 2 then
+    raise exception 'G3.9 FAIL: expected 2 notes marked orphaned, got %', orphaned;
+  end if;
+  -- The note has to be READABLE afterwards, not merely present: car and
+  -- conditions are copied onto it precisely so it survives this.
+  if not exists (
+    select 1 from public.track_notes
+     where car = 'Ferrari 499P' and ambient_c = 29.5
+       and body = 'Brake 10 m later, the kerb takes it.'
+  ) then
+    raise exception 'G3.9 FAIL: the surviving note lost its car/conditions/body';
+  end if;
+  raise notice 'G3.9 ok — notes survive session deletion, readable, marked orphaned';
+end $$;
+
+-- G3.10 — REVISION STAYS ENFORCED AFTER THE SESSION IS GONE. `session_key` is
+-- text and never nulled for this reason: SQL NULLs compare as DISTINCT, so a
+-- unique key built on `source_session_id` would stop constraining anything the
+-- moment it went null, and one anchor could then take unlimited duplicates.
+do $$
+begin
+  insert into public.track_notes
+    (track_key, anchor_key, d_start, d_end, body, session_key)
+  values ('circuit of the americas', 'd0024', 0.1200, 0.1350,
+          'duplicate of an orphaned note',
+          'aaaaaaaa-0000-0000-0000-000000000002');
+  raise exception 'G3.10 FAIL: an orphaned anchor accepted a duplicate revision';
+exception when unique_violation then
+  raise notice 'G3.10 ok — revision still enforced after the session is deleted';
+end $$;
+
+-- ── Act as driver B ─────────────────────────────────────────────
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+
+-- G3.2, extended to notes — a driver's track guide is theirs alone. Notes are
+-- free text a driver writes about their own driving; a leak here is a different
+-- and worse class of leak from a telemetry row.
+do $$ begin
+  if (select count(*) from public.track_notes) <> 0 then
+    raise exception 'G3.2 FAIL: B sees % of A''s track notes',
+      (select count(*) from public.track_notes);
+  end if;
+  raise notice 'G3.2 ok — B sees 0 of A''s track notes';
+end $$;
+
+-- G3.1, extended to notes — B cannot forge a note owned by A.
+do $$
+begin
+  insert into public.track_notes
+    (user_id, track_key, anchor_key, d_start, d_end, body, session_key)
+  values ('00000000-0000-0000-0000-00000000000a', 'cota', 'd0050', 0.25, 0.26,
+          'planted', 'forged');
+  raise exception 'RLS FAIL: B inserted a track note owned by A';
+exception when insufficient_privilege then
+  raise notice 'G3.1 ok — spoofed note insert rejected by RLS';
+end $$;
+
+-- B cannot reach across the boundary to edit or delete A's notes either. RLS
+-- filters the rows out rather than raising, so the assertion is "0 affected" —
+-- the same shape as G3.6, and for the same reason: UPDATE and DELETE policies
+-- are the easiest place to widen isolation by accident.
+do $$
+declare touched int;
+begin
+  update public.track_notes set body = 'tampered';
+  get diagnostics touched = row_count;
+  if touched <> 0 then
+    raise exception 'FAIL: B modified % of A''s notes', touched;
+  end if;
+  delete from public.track_notes;
+  get diagnostics touched = row_count;
+  if touched <> 0 then
+    raise exception 'FAIL: B deleted % of A''s notes', touched;
+  end if;
+  raise notice 'notes ok — B''s update and delete both affected 0 rows';
+end $$;
+
 reset role;
 select 'ALL RING 3 ACCEPTANCE CHECKS PASSED' as result;
