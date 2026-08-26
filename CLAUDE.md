@@ -158,9 +158,18 @@ is "done").
   at speed) while lateral G is 25 Hz (~2.2 m at speed, sub-metre in a corner).
   This finds **20 corners on every lap of the COTA export against the circuit's
   official 20**, where trace geometry topped out at 12 (uniform trace) and 15
-  (importance-weighted). Every threshold is a *fraction* of the session's
-  lateral capability and every duration is in *seconds* — never an absolute G
-  value or a sample count, or it stops travelling to another car or exporter.
+  (importance-weighted). Every threshold is a *fraction* and every duration is
+  in *seconds* — never an absolute G value or a sample count, or it stops
+  travelling to another car or exporter.
+- **The corner yardstick is the LAP'S OWN TYPICAL CORNER — the median peak load
+  of its candidate runs — not a session-wide percentile.** Two passes: a rough
+  capability hint finds enough runs to take a median from, then everything
+  scales off that median. The single-pass form held 20 only for a capability
+  between 1.40 and 1.80 against a measured 1.607 — a **±12% tolerance on one
+  scalar**, failing *silently* by dropping corners. The two-pass form holds 20
+  across **0.3 to 8.0 (27×)**. Do not reintroduce a threshold proportional to a
+  session-wide peak or percentile; that is the exact regression, and
+  `cornerDetect.test.js` pins it on the real export.
   `lib/corners.js`'s curvature detector is now a FALLBACK for sessions
   ingested before this; do not extend it or tune it.
 - GPS channels are game-world coordinates dressed as lat/lon (nominally in

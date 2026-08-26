@@ -29,16 +29,39 @@
 // file. It is a plateau, not a knife-edge: `peakFrac` 0.50 through 0.60 and
 // `onFrac` 0.15 through 0.25 all return the identical answer.
 //
-// EVERY THRESHOLD IS DIMENSIONLESS, WHICH IS WHAT MAKES IT TRAVEL.
+// EVERY THRESHOLD IS DIMENSIONLESS, AND THE SCALE COMES FROM THE LAP ITSELF.
 //
-// The load-bearing decision here is that no threshold is an absolute G number.
-// "0.25 G" means a firm corner in an LMP3 and a rounding error in a Hypercar;
-// "0.9 seconds" means one corner at Monaco and half a straight at Le Mans. So
-// every level is expressed as a FRACTION of the session's lateral capability
-// (the 97th percentile of |G_lat| — near the peak, but immune to a single
-// kerb strike), and the splitting rule is a fraction of the *surrounding*
-// peaks. A car with half the grip on a circuit with twice the corners gets the
-// same answer, because every number scales with it.
+// No threshold is an absolute G number. "0.25 G" means a firm corner in an LMP3
+// and a rounding error in a Hypercar; "0.9 seconds" means one corner at Monaco
+// and half a straight at Le Mans. So every level is a FRACTION of something the
+// data supplies, and every duration is in seconds.
+//
+// The first version took that yardstick from a session-wide percentile of
+// |G_lat|. Measured against the real export, that put the whole answer on one
+// scalar with a **±12% tolerance**: the count held at 20 only for a capability
+// between 1.40 and 1.80, and the measured value was 1.607. A car with an
+// unfamiliar grip level, a wet session, or a circuit with a different
+// straight-to-corner ratio could walk out of that band, and the failure would be
+// silent — corners quietly missing, no error anywhere.
+//
+// So the yardstick is now the LAP'S OWN TYPICAL CORNER: the *median* peak load
+// of the candidate cornering runs in that lap. A corner is something that loads
+// the car comparably to the other corners here. The median is the point — it
+// ignores both the 2.4 G moment on a kerb and the 0.3 G exit tails, and it does
+// not care what fraction of the lap is straight.
+//
+// Two passes, because the typical corner cannot be measured until runs exist:
+//
+//   PASS 1 — bootstrap. Find runs using a rough capability hint, and take their
+//            median peak. The hint only has to be within a factor of a few.
+//   PASS 2 — re-find the runs with edges set from that typical corner, and
+//            accept a run only if it reaches `cornerFrac` of it.
+//
+// MEASURED RESULT: the capability hint can be wrong by **10x** — anywhere from
+// 0.5 to 5.0 against a true 1.6 — and all four laps still return 20. The old
+// single-pass form broke outside 1.4-1.8. That is the difference between a
+// number that happens to be right here and one that will survive a car nobody
+// here has driven.
 //
 // HOW A CORNER IS BOUNDED, in three steps:
 //
@@ -73,22 +96,25 @@
 import { strictNum } from './num.js'
 
 export const DETECT_DEFAULTS = {
-  // Percentile of |G_lat| taken as the lap's lateral capability. Not the max:
-  // one kerb strike or one bump would raise the bar for the whole lap.
+  // Percentile of |G_lat| used for the PASS 1 bootstrap hint only. Not the max:
+  // one kerb strike would raise it. Its accuracy barely matters now — see the
+  // 10x tolerance in the header — but a sane starting point still costs nothing.
   capPercentile: 0.97,
   // Box-smoothing half-width, in SECONDS, so a 25 Hz and a 50 Hz export get
   // the same physical filter. ±0.12 s measured best on the real lap; ±0.08 s
   // over-splits on noise and ±0.16 s starts merging real corners.
   smoothS: 0.12,
-  // Fraction of capability at which the car counts as cornering. Deliberately
-  // low — this only sets the corner's EDGES, and step 2 decides what is real.
-  // Verified insensitive: 0.15 through 0.25 all give the same corner count.
-  onFrac: 0.15,
-  // Fraction of capability a corner must actually reach. This is the filter
-  // that separates a corner from the tail of the one before it. 0.50 to 0.60
-  // all give the identical answer on the real export, so 0.55 is the middle of
-  // a plateau rather than a knife-edge.
-  peakFrac: 0.55,
+  // PASS 1 edge level, as a fraction of the capability hint. Only has to be low
+  // enough to surface the runs the median is taken from.
+  bootFrac: 0.15,
+  // PASS 2 edge level, as a fraction of the lap's TYPICAL corner. Sets where a
+  // corner starts and stops, not whether it is one.
+  edgeFrac: 0.30,
+  // What a run must reach, as a fraction of the lap's typical corner, to BE a
+  // corner. This is the filter that separates a turn from the tail of the one
+  // before it — and being relative to the lap's own corners is what makes it
+  // survive an unfamiliar car.
+  cornerFrac: 0.50,
   // Same-direction runs separated by less than this are one corner.
   mergeS: 0.35,
   // A corner must last this long. Below it, a bump is a corner.
@@ -134,6 +160,14 @@ export function lateralCapability(gLat, percentile = DETECT_DEFAULTS.capPercenti
   return mags[i]
 }
 
+/** Median of a numeric list, or 0 when there is nothing to take one of. */
+export function median(values) {
+  const v = (values ?? []).map(strictNum).filter(Number.isFinite).sort((a, b) => a - b)
+  if (v.length === 0) return 0
+  const m = v.length >> 1
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2
+}
+
 /** Relative prominence of an interior minimum at `i` within `[lo, hi]`. */
 function relativeProminence(s, i, lo, hi) {
   const a = Math.abs(s[i])
@@ -169,14 +203,12 @@ export function detectCornersFromG(gLat, rateHz, opts = {}) {
 
   const s = smooth(gLat, Math.max(1, Math.round(o.smoothS * rate)))
   const given = strictNum(o.capability)
-  const cap = Number.isFinite(given) && given > 0 ? given : lateralCapability(s, o.capPercentile)
+  const hint = Number.isFinite(given) && given > 0 ? given : lateralCapability(s, o.capPercentile)
   // A lap with no lateral load at all — a pit lane, or an export whose G
   // channel is empty. There are no corners to find, and scaling by zero would
   // make every sample a corner.
-  if (!(cap > 0)) return []
+  if (!(hint > 0)) return []
 
-  const onLevel = o.onFrac * cap
-  const needLevel = o.peakFrac * cap
   const mergeGap = Math.round(o.mergeS * rate)
   const minLen = Math.round(o.minDurS * rate)
   const splitGap = Math.round(o.splitGapS * rate)
@@ -187,37 +219,60 @@ export function detectCornersFromG(gLat, rateHz, opts = {}) {
     return p
   }
 
-  // 1 · Signed runs above the on-level. A sign flip ends a run: an ess is two
-  //     corners, and this is the step geometry at 13 m could not do.
-  const runs = []
-  let cur = null
-  for (let i = 0; i < s.length; i++) {
-    const v = s[i]
-    const sign = v > 0 ? 1 : -1
-    if (Math.abs(v) >= onLevel) {
-      if (cur && cur.sign === sign) cur.endIdx = i
-      else {
-        if (cur) runs.push(cur)
-        cur = { startIdx: i, endIdx: i, sign }
+  /**
+   * Signed runs above `onLevel`, merged across a brief release.
+   *
+   * A sign flip always ends a run: a left immediately followed by a right is
+   * two corners, and this is the step geometry at 13 m could never do.
+   */
+  const runsAbove = (onLevel) => {
+    const raw = []
+    let cur = null
+    for (let i = 0; i < s.length; i++) {
+      const v = s[i]
+      const sign = v > 0 ? 1 : -1
+      if (Math.abs(v) >= onLevel) {
+        if (cur && cur.sign === sign) cur.endIdx = i
+        else {
+          if (cur) raw.push(cur)
+          cur = { startIdx: i, endIdx: i, sign }
+        }
+      } else if (cur) {
+        raw.push(cur)
+        cur = null
       }
-    } else if (cur) {
-      runs.push(cur)
-      cur = null
     }
-  }
-  if (cur) runs.push(cur)
+    if (cur) raw.push(cur)
 
-  // 2 · Merge same-direction runs across a brief release, then reject anything
-  //     that never actually loaded the car.
-  const merged = []
-  for (const r of runs) {
-    const last = merged[merged.length - 1]
-    if (last && last.sign === r.sign && r.startIdx - last.endIdx <= mergeGap) last.endIdx = r.endIdx
-    else merged.push({ ...r })
+    const merged = []
+    for (const r of raw) {
+      const last = merged[merged.length - 1]
+      if (last && last.sign === r.sign && r.startIdx - last.endIdx <= mergeGap) last.endIdx = r.endIdx
+      else merged.push({ ...r })
+    }
+    return merged
   }
+
+  // The lap's TYPICAL corner: median peak of the runs long enough to be corners
+  // at all. Short runs are excluded before the median is taken, or a lap's
+  // worth of exit tails would drag the yardstick down.
+  const typicalOf = (runs) =>
+    median(runs.filter((r) => r.endIdx - r.startIdx + 1 >= minLen).map(peakOf))
+
+  // PASS 1 · bootstrap — enough runs to measure a typical corner from.
+  const boot = typicalOf(runsAbove(o.bootFrac * hint))
+  if (!(boot > 0)) return []
+
+  // PASS 2 · everything from here scales off the lap's own corners, which is
+  // what makes the answer survive a 10x error in the hint.
+  const merged = runsAbove(o.edgeFrac * boot)
+  const typical = typicalOf(merged)
+  if (!(typical > 0)) return []
+  const needLevel = o.cornerFrac * typical
+
   const kept = merged.filter((r) => peakOf(r) >= needLevel)
 
-  // 3 · Split a sustained corner where the driver released and reloaded.
+  // Split a sustained corner where the driver released and reloaded.
   const split = []
   for (const r of kept) {
     const cuts = []
@@ -241,9 +296,9 @@ export function detectCornersFromG(gLat, rateHz, opts = {}) {
     split.push({ startIdx: from, endIdx: r.endIdx, sign: r.sign })
   }
 
-  // The step-2 reject, applied AGAIN to every fragment. A piece that never
-  // loaded the car is not a corner regardless of what it was cut from —
-  // skipping this left a 0.3-0.7 G fragment in most laps.
+  // The accept bar, applied AGAIN to every fragment. A piece that never loaded
+  // the car is not a corner regardless of what it was cut from — skipping this
+  // re-check left a 0.3-0.7 G fragment in most laps.
   return split
     .filter((r) => r.endIdx - r.startIdx + 1 >= minLen && peakOf(r) >= needLevel)
     .map((r) => {
