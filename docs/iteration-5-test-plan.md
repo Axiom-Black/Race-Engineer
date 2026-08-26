@@ -60,8 +60,9 @@ under the final parser, and nothing needs re-uploading by hand.
 
 ## 2 · Coverage: the LMU roster, with properties attached
 
-**The owner supplies the full LMU track list; the schedule is sorted against
-it.** The roster and its property columns live in
+**The owner supplied the full LMU track list (26 Aug 2026); the schedule is
+sorted against it.** 14 confirmed venues, plus alternate layouts at 12 of them
+and the full five-class car roster. The roster and its property columns live in
 **`docs/lmu-track-roster.md`** — length, longest straight, official corner
 count, corner density, elevation. Those columns are what make the list useful
 for choosing *which* track to drive on a given day: a track is a test case, and
@@ -70,6 +71,18 @@ what makes it a different test case is the code path it stresses, not its name.
 Coverage targets are set on the properties (longest, shortest, densest, longest
 straight, real elevation, plus COTA as control) rather than on a track count —
 one track can satisfy several, so six targets might take three tracks or six.
+
+**Alternate layouts count as separate test cases**, not duplicates: a removed
+chicane or a cut section changes length, corner count and corner density, which
+are three of the five columns that decide coverage. **Sarthe — Mulsanne No
+Chicanes** is therefore not a curiosity but the single best probe available for
+whether `lib/resample.js` starves a very long straight.
+
+The property columns are still blank, so the targets are not yet selectable up
+front — but they largely fill themselves, because length, longest straight and
+detected corner count are all measured at upload. Only the **official** corner
+count needs an outside source. The roster names four day-1 candidates that need
+no figures at all; see its §Coverage targets.
 
 ### Cars — one from each row, minimum
 
