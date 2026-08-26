@@ -163,6 +163,25 @@ is "done").
   **1.72**. Divide, don't multiply. Fixed in the consumer rather than in ingest
   so sessions already in Storage render correctly without a re-upload — which
   means the persisted meaning stays width/height and must not be "corrected".
+- **The trace's 400 points are NOT evenly spaced — `d` is the only position.**
+  Since 26 Aug 2026 `buildLapPoints` spends its budget by importance
+  (`lib/resample.js`): weight each sample by lateral G and longitudinal
+  acceleration, integrate that against distance, and place output points at
+  equal intervals of the weighted arc length. At COTA corners land ~4.9 m apart
+  and straights ~35 m, for the same 400 points and the same stored bytes.
+  **Anything that computes position as `i / (n - 1)` is now wrong** — read
+  `p.d`, and invert it with `nearestIndex` (`lib/traceAxis.js`). Corner
+  detection went 12 → 15 at COTA; every detection default in `lib/corners.js`
+  was re-swept and must not be ported back from an older revision.
+- **Replay runs on SECONDS, never on sample indices** (`lib/replay.js`). With
+  corners holding 3–4× the points of a straight, a constant index rate crawls
+  through every corner and fires down every straight — the exact inverse of what
+  the car did. `advanceCursor` was deleted for this reason; do not reintroduce
+  an index-stepping playback.
+- **`cumulativeDistance` stores the distance BEFORE each sample**, so `cum[0]`
+  is 0. Accumulating first put the lap's opening point 0.7 m down the road —
+  harmless while `d` was derived from the output index, a lie the moment it came
+  from the cumulative array.
 - **`G Force Long` is POSITIVE under braking** — measured from the real export
   25 Aug 2026: mean **+1.63 G** with `Brake Pos > 70%`, versus **−0.24 G** off
   the brakes. So positive = deceleration, negative = acceleration, which is the
