@@ -26,8 +26,7 @@
 // RESULT ON THE REAL EXPORT: **20 corners on every lap of the session** — the
 // out-lap and all three timed laps — against COTA's official 20, from
 // geometry-free physics with no circuit-specific constant anywhere in this
-// file. It is a plateau, not a knife-edge: `peakFrac` 0.50 through 0.60 and
-// `onFrac` 0.15 through 0.25 all return the identical answer.
+// file.
 //
 // EVERY THRESHOLD IS DIMENSIONLESS, AND THE SCALE COMES FROM THE LAP ITSELF.
 //
@@ -57,21 +56,23 @@
 //   PASS 2 — re-find the runs with edges set from that typical corner, and
 //            accept a run only if it reaches `cornerFrac` of it.
 //
-// MEASURED RESULT: the capability hint can be wrong by **10x** — anywhere from
-// 0.5 to 5.0 against a true 1.6 — and all four laps still return 20. The old
-// single-pass form broke outside 1.4-1.8. That is the difference between a
-// number that happens to be right here and one that will survive a car nobody
-// here has driven.
+// MEASURED RESULT: the capability hint can be wrong by **27x** — anywhere from
+// 0.3 to 8.0 against a true 1.607 — and all four laps still return 20. Passing
+// no hint at all also returns 20, because the lap supplies its own scale. The
+// old single-pass form broke outside 1.40-1.80. That is the difference between
+// a number that happens to be right here and one that will survive a car
+// nobody here has driven, and cornerDetect.test.js pins the TOLERANCE rather
+// than the 20 for exactly that reason.
 //
 // HOW A CORNER IS BOUNDED, in three steps:
 //
-//   1. RUNS. Contiguous samples where |G_lat| clears `onFrac` of capability,
-//      broken whenever the sign flips — a left immediately followed by a right
-//      is two corners, and this is what resolves an ess sequence that geometry
-//      at 13 m smears into one arc.
+//   1. RUNS. Contiguous samples where |G_lat| clears `edgeFrac` of the typical
+//      corner, broken whenever the sign flips — a left immediately followed by
+//      a right is two corners, and this is what resolves an ess sequence that
+//      geometry at 13 m smears into one arc.
 //   2. MERGE, then REJECT. Same-direction runs separated by a brief release are
-//      one corner. A run that never reaches `peakFrac` of capability is a
-//      corner-exit tail, not a corner — the car is still unwinding, and
+//      one corner. A run that never reaches `cornerFrac` of the typical corner
+//      is a corner-exit tail, not a corner — the car is still unwinding, and
 //      counting it would have added a phantom turn to most laps.
 //   3. SPLIT. A sustained same-direction run is cut at an interior |G_lat|
 //      minimum whose RELATIVE prominence clears `relProm` — the driver released
@@ -89,7 +90,7 @@
 // It counts *cornering events*, and official numbering is a circuit-operator
 // convention that no telemetry channel contains. Some circuits number a kink
 // that generates no measurable load; others give one number to a complex the
-// car clearly takes as two. The count matching COTA's 20 exactly on all three
+// car clearly takes as two. The count matching COTA's 20 exactly on all four
 // laps is strong evidence the physics is right — but it is one circuit, one
 // car, one driver, so the numbering stays labelled as ours until the curated
 // registry lands in Phase 3. See docs/phase-plan.md.

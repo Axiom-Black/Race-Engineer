@@ -301,12 +301,57 @@ is a measurement. Sweep wide enough to tell which one you have. *Codex II.1, II.
 
 ---
 
+### A18 · Measure the tolerance, not the answer — and let the sweep refute you
+
+A detector that returns the right number is not the same as a detector that is
+right. The distinction is the **tolerance**: how wrong can its inputs be before
+the answer moves?
+
+Corner detection returned exactly the circuit's official corner count on every
+lap of the real export, which felt conclusive. Sweeping its one scale parameter
+directly showed the count held **only across ±12%** of the measured value. The
+number was right; the design was a knife-edge, and its failure mode was
+**silent** — corners quietly missing, no error, nothing to notice. A product
+meeting an unfamiliar car would have failed without ever saying so.
+
+**The habits this produces:**
+
+1. **Sweep every scale parameter over orders of magnitude, not over a plausible
+   range.** A plausible range only tells you the answer is stable where you
+   already expected it to be. The interesting question is where it breaks.
+2. **Assert the tolerance in the test, not the answer.** `expect(corners).
+   toHaveLength(20)` at the measured input is a fact about one file.
+   `toHaveLength(20)` across a 27× input range is a property of the design.
+   Pin the property — the answer follows from it, and the reverse is not true.
+3. **Prefer a yardstick the subject supplies over one measured globally.** The
+   fix was to scale off the *median of the local population* — here, the typical
+   corner in that lap — instead of a session-wide percentile. Self-normalising
+   against the thing you are classifying is immune to the global distribution
+   shifting under you.
+4. **Prove the new test is not vacuous by re-creating the old failure.** Wiring
+   the bar back to the global scalar made it die at a 4× error where the new
+   form holds to 12×. Without that check, a robustness test can pass because it
+   is testing nothing.
+
+**And the part worth being honest about:** the hypothesis was wrong. I predicted
+sensitivity to the straight-to-corner ratio and to outlier spikes, and measured
+both — 240 s of extra straight and a 4 G spike each moved the scalar by under
+3% and changed nothing. The real fragility was somewhere I had not looked.
+**Measure before you fix, even when the mechanism seems obvious**; a confident
+diagnosis that survives no measurement is how you harden the wrong thing and
+report it as progress. *Codex II.1, IV.3.*
+
+---
+
+---
+
 ## Part B — Session trail (newest first)
 
 Each entry: date · what shipped · the method insight worth carrying forward.
 
 | Date | Shipped | Method insight |
 | --- | --- | --- |
+| 26 Aug 2026 | Corner detection re-scaled off the lap's own typical corner (27× input tolerance, was ±12%) | **Measure the tolerance, not the answer — and let the sweep refute your hypothesis.** Full pattern in **A18**. The second lesson is a support one that is really a product one: the reported defect (14 corners instead of 20) was not a defect at all — it was a session parsed by an older bundle, because parsing is client-side and derived data is written at upload. Diagnosing it took three exchanges and was only settled by noticing the uploaded session's channel summary was *numerically identical* to the committed fixture's, which proved it was the same export and therefore that the detector was not the variable. **When derived data is computed at write time, a stale record is indistinguishable from a broken feature** — and nothing in the UI named the build that produced either the page or the record. The cheap fix (a build marker) and the real fix (backfill from the raw files already in Storage) are both now the top blocker, because the next occurrence costs the same three exchanges. **A smaller habit worth keeping:** the fastest way to identify what a user is looking at was to compare a summary statistic of their data against a known artifact. Channel min/max is free, carries no PII, and uniquely identified the file. |
 | 26 Aug 2026 | Corner detection moved to ingest, on full-rate lateral G: 20/20 at COTA on every lap | **The ceiling was the channel, not the algorithm.** Full pattern in **A17**. The session's second lesson is about the difference between a target and a criterion: the ask was "get all 20", and it is trivially possible to reach 20 on one circuit by tuning until the count matches — which would have shipped a detector that fails on the first track nobody here has driven. What made the result trustworthy was refusing to accept any setting that was not (a) a *plateau*, with two parameters varying across a range without changing the answer, (b) *repeatable* on four independent laps, and (c) built from **dimensionless** thresholds, so a test can prove the same lap at half the grip and double the sample rate returns the same corners. The number and the confidence came from the same discipline. **Also worth carrying:** normalising a measurement per-lap felt natural and was wrong — the yardstick (lateral capability) belongs to the car and the circuit, so a lap where the driver never pushed re-scaled its own noise into signal. When you divide by something, ask what population that something should be measured over; "the thing in front of me" is a default, not an answer. |
 | 26 Aug 2026 | Readability programme closed: adaptive trace resolution, map transport + panel, Progression rework, Engineering Run readiness, run averages | **Fix the allocation before you buy more capacity — and then go and check what depended on the old shape.** Full pattern in **A16**. The session's other reusable lesson is about *labels on borrowed layouts*: three of these five views were ported from prototypes that show figures we cannot compute. The prototype's Progression column says GAP TO IDEAL against a curated reference-lap library that does not exist, and its Engineering Run fills metric boxes with "— TBD". Copying either verbatim ships a claim about data you do not have; deleting them loses the layout. **What worked was keeping the layout and changing the measurement to one that is real** — gap to *your own* best, and per-agent *input readiness* instead of per-agent output — then pinning the honest label with a test that asserts the prototype's wording is **absent**, so it cannot drift back in when the file is next touched. **The Engineering Run version is worth its own note:** the prototype's TBD boxes were honest and worth nothing. Asking "what is the one real question this surface can answer today?" produced a better feature than either shipping the fake or shipping nothing — LMU ships GTE cars with several channels permanently empty, so telling a driver *now* which agents their export can feed is payable, needs no backend, and is something only we can answer. **Also, again:** two real defects this session were found by rendering and looking, not by 500 tests — an off-by-one in cumulative distance that was invisible while a derived field masked it, and a reconciled/unreconciled lap-time contradiction on one screen (that one *was* caught, by an existing test whose assertion then got **stronger**, not relaxed, to accommodate the new view). |
 | 21 Aug 2026 | P0 — real multi-lap fixture + hashed golden-master format | **Diff the test fixture against the real input it came from; a fixture's limitations are usually undocumented and sometimes free to remove.** The fixture here had been "truncated for CI" — except the byte diff showed every channel record's sample-count field overwritten to 300 while all the telemetry bytes remained. It was still 849 KB. The truncation bought **no space at all** and cost the ability to test lap logic, which is how it hid two production bugs. Nobody had checked, because "truncated fixture" sounded like a reasonable trade. **Second, on golden masters that grow:** when a fixture gets 20× more data, embedding every value stops being viable (~6 MB of JSON). A **hash over the complete decoded array** is smaller than the original *and* asserts strictly more than keeping every Nth sample, which cannot see a regression between the samples it keeps — keep extremes and a few edge values in plain text so failures stay diagnosable. The risk is cross-language hash stability, so pin the canonical form narrowly (fixed decimals, normalise negative zero — Python prints `-0.000000` where JS prints `0.000000`) and **verify both runtimes agree before you rely on it**. **Third:** the masters had no committed generator, so "generated from exactly these bytes" was a promise for months. If a gate asserts provenance, the thing that produces it belongs in the repo and in CI. |
