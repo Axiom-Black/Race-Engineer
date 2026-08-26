@@ -51,17 +51,19 @@ export function xAt(axis, i, width) {
 }
 
 /**
- * The index whose distance is nearest `frac` (0…1).
+ * The index in a monotonically non-decreasing array whose value is nearest
+ * `value` — the distance axis here, the lap-time axis in lib/replay.js.
  *
  * Binary search, because this runs on every pointer move over a 400-point
- * trace and a linear scan of four plots plus a map adds up. Returns the closer
- * of the two bracketing points rather than always rounding down, so scrubbing
- * lands on the sample under the cursor instead of the one just behind it.
+ * trace and on every animation frame of the replay; a linear scan of four
+ * plots plus a map adds up. Returns the closer of the two bracketing points
+ * rather than always rounding down, so scrubbing lands on the sample under the
+ * cursor instead of the one just behind it.
  */
-export function indexAtFraction(axis, frac) {
-  const n = axis.length
+export function nearestIndex(axis, value) {
+  const n = axis?.length ?? 0
   if (n === 0) return 0
-  const f = strictNum(frac)
+  const f = strictNum(value)
   if (!Number.isFinite(f)) return 0
   if (f <= axis[0]) return 0
   if (f >= axis[n - 1]) return n - 1

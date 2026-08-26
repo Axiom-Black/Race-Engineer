@@ -7,6 +7,11 @@
 //
 // Everything here reads one trace point. The geometry lives in lib/gauges.js
 // so this file is layout only.
+//
+// RadialGauge / PedalBar / GForceCross are exported because the Track Map's
+// own panel (MapInstruments.jsx) shows the subset of these that a position on
+// track explains. Two sets of dials that looked almost the same would be worse
+// than one set used twice.
 import { C, font } from '../theme'
 import {
   gaugeFraction, arcPath, polar, gearLabel, slipSeverity, gCrossPosition,
@@ -15,7 +20,7 @@ import {
 const SWEEP_START = -135
 const SWEEP_END = 135
 
-function RadialGauge({ value, max, label, unit, color, size = 118 }) {
+export function RadialGauge({ value, max, label, unit, color, size = 118 }) {
   const r = size / 2 - 9
   const c = size / 2
   const f = gaugeFraction(value, max)
@@ -47,7 +52,7 @@ function RadialGauge({ value, max, label, unit, color, size = 118 }) {
   )
 }
 
-function PedalBar({ value, label, color, height = 96 }) {
+export function PedalBar({ value, label, color, height = 96 }) {
   const f = gaugeFraction(value, 100)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
@@ -69,7 +74,7 @@ function PedalBar({ value, label, color, height = 96 }) {
 
 const G_MAX = 2.5
 
-function GForceCross({ lat, long, size = 112 }) {
+export function GForceCross({ lat, long, size = 112 }) {
   const pos = gCrossPosition(lat, long, G_MAX)
   const c = size / 2
   const r = c - 8

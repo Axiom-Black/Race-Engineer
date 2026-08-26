@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { distanceAxis, xAt, indexAtFraction } from './traceAxis.js'
+import { distanceAxis, xAt, nearestIndex } from './traceAxis.js'
 
 const pts = (ds) => ds.map((d) => ({ d }))
 
@@ -45,32 +45,32 @@ describe('xAt', () => {
   })
 })
 
-describe('indexAtFraction', () => {
+describe('nearestIndex', () => {
   const axis = [0, 0.1, 0.2, 0.9, 1]
 
   it('lands on the sample under the cursor, not the one behind it', () => {
     // 0.88 is much nearer index 3 (0.9) than index 2 (0.2). Rounding down —
     // which is what a naive search returns — would scrub 700 m up the road.
-    expect(indexAtFraction(axis, 0.88)).toBe(3)
+    expect(nearestIndex(axis, 0.88)).toBe(3)
   })
 
   it('picks the nearer of the two bracketing points', () => {
-    expect(indexAtFraction(axis, 0.12)).toBe(1)
-    expect(indexAtFraction(axis, 0.18)).toBe(2)
+    expect(nearestIndex(axis, 0.12)).toBe(1)
+    expect(nearestIndex(axis, 0.18)).toBe(2)
   })
 
   it('clamps at both ends', () => {
-    expect(indexAtFraction(axis, -1)).toBe(0)
-    expect(indexAtFraction(axis, 5)).toBe(4)
+    expect(nearestIndex(axis, -1)).toBe(0)
+    expect(nearestIndex(axis, 5)).toBe(4)
   })
 
   it('is the inverse of the axis at every sample', () => {
-    axis.forEach((d, i) => expect(indexAtFraction(axis, d)).toBe(i))
+    axis.forEach((d, i) => expect(nearestIndex(axis, d)).toBe(i))
   })
 
   it('survives an empty axis or a nonsense fraction', () => {
-    expect(indexAtFraction([], 0.5)).toBe(0)
-    expect(indexAtFraction(axis, null)).toBe(0)
-    expect(indexAtFraction(axis, NaN)).toBe(0)
+    expect(nearestIndex([], 0.5)).toBe(0)
+    expect(nearestIndex(axis, null)).toBe(0)
+    expect(nearestIndex(axis, NaN)).toBe(0)
   })
 })

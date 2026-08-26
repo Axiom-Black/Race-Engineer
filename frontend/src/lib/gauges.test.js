@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   gaugeFraction, polar, arcPath, gearLabel, slipSeverity,
-  gCrossPosition, advanceCursor, SLIP_WARN, SLIP_HIGH,
+  gCrossPosition, SLIP_WARN, SLIP_HIGH,
 } from './gauges.js'
 
 describe('gaugeFraction', () => {
@@ -100,23 +100,5 @@ describe('gCrossPosition', () => {
   it('returns null when either axis is missing', () => {
     expect(gCrossPosition(null, 1)).toBeNull()
     expect(gCrossPosition(1, undefined)).toBeNull()
-  })
-})
-
-describe('advanceCursor', () => {
-  it('advances proportionally to elapsed time and rate', () => {
-    // 400 points over 100 s = 4 points/s; half a second at 2x = 4 points.
-    expect(advanceCursor(0, 400, 0.5, 100, 2)).toBeCloseTo(4, 6)
-  })
-
-  it('WRAPS to the start rather than stopping at the end', () => {
-    // Halting on the last sample forces a re-scrub to watch it again.
-    expect(advanceCursor(399, 400, 1, 100, 1)).toBe(0)
-  })
-
-  it('holds position when there is nothing to replay', () => {
-    expect(advanceCursor(7, 1, 1, 100)).toBe(7)
-    expect(advanceCursor(7, 400, 1, null)).toBe(7)
-    expect(advanceCursor(7, 400, 1, 0)).toBe(7)
   })
 })

@@ -235,6 +235,44 @@ describe('the Track Map', () => {
     expect(await screen.findByLabelText('Track map')).toBeInTheDocument()
   })
 
+  it('carries a transport, so the lap can be watched back on the map', async () => {
+    // The map is where replay pays: the dot moving round the circuit is what
+    // tells a driver WHERE the trace they are reading happened.
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(await screen.findByRole('button', { name: /Play/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '1x' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Scrub the lap')).toBeInTheDocument()
+  })
+
+  it('shows an instrument panel of only what a position on track explains', async () => {
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(await screen.findByLabelText('SPEED gauge')).toBeInTheDocument()
+    expect(screen.getByLabelText('G force')).toBeInTheDocument()
+    expect(screen.getByLabelText(/THR/)).toBeInTheDocument()
+    // Engine RPM and wheel slip belong to the powertrain and the tyres, not to
+    // where the car is — they stay on the Instruments tab that owns them.
+    expect(screen.queryByLabelText('ENGINE gauge')).toBeNull()
+    expect(screen.queryByText(/WHEEL SLIP/)).toBeNull()
+  })
+
+  it('names the section under the cursor, and says STRAIGHT when there is none', async () => {
+    // Naming the nearest corner on a straight would put a corner readout on a
+    // piece of track that has none.
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(await screen.findByText('STRAIGHT')).toBeInTheDocument()
+  })
+
+  it("says the numbering is ours, not the circuit's", async () => {
+    // Showing "T12" next to a corner a driver calls turn 15 invites them to
+    // quote it to someone else.
+    await renderReport()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(await screen.findByText(/not the circuit's official numbering/)).toBeInTheDocument()
+  })
+
   it('says so when the lap logged no GPS', async () => {
     getSessionTrace.mockResolvedValue({
       aspect: 1,

@@ -1,11 +1,11 @@
 // Corner detection, tested on synthetic shapes where the right answer is known
-// by construction. The real-export behaviour is recorded in the module header:
-// detection plateaus at 12 corners at COTA because the persisted trace is
-// ~400 points per lap (~13.5 m), and that is a storage limit, not a tuning one.
+// by construction. The real-export behaviour is asserted in ingest.test.js,
+// against the fixture: 15 corners on the COTA fastest lap, up from the 12 that
+// uniform 400-point sampling could ever reach. The module header records why.
 import { describe, it, expect } from 'vitest'
 import {
   curvatureAt, outwardNormal, speedDips, detectCorners, topSpeedIndex,
-  relaxLabels, DEFAULTS,
+  relaxLabels, cornerAt, DEFAULTS,
 } from './corners.js'
 
 /** A closed circle of `n` points — constant curvature everywhere. */
@@ -237,5 +237,33 @@ describe('relaxLabels', () => {
 describe('defaults', () => {
   it('are the swept values, not round numbers someone liked', () => {
     expect(DEFAULTS).toMatchObject({ threshold: 40, minRun: 2, mergeGap: 3, prominence: 3, minGap: 4 })
+  })
+})
+
+describe('cornerAt', () => {
+  const corners = [
+    { n: 1, startIdx: 10, apexIdx: 14, endIdx: 20 },
+    { n: 2, startIdx: 50, apexIdx: 55, endIdx: 60 },
+  ]
+
+  it('names the corner the cursor is inside', () => {
+    expect(cornerAt(corners, 14).n).toBe(1)
+    expect(cornerAt(corners, 10).n).toBe(1)
+    expect(cornerAt(corners, 60).n).toBe(2)
+  })
+
+  it('says nothing on a straight, rather than naming the nearest corner', () => {
+    // A cursor halfway down the back straight is not in a turn, and labelling
+    // it with whichever corner is closest puts a corner readout on track that
+    // has none. Straight is a real answer.
+    expect(cornerAt(corners, 35)).toBeNull()
+    expect(cornerAt(corners, 0)).toBeNull()
+    expect(cornerAt(corners, 999)).toBeNull()
+  })
+
+  it('tolerates no corners and a nonsense index', () => {
+    expect(cornerAt([], 5)).toBeNull()
+    expect(cornerAt(null, 5)).toBeNull()
+    expect(cornerAt(corners, null)).toBeNull()
   })
 })

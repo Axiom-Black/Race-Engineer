@@ -239,6 +239,21 @@ export function detectCorners(pts, opts = {}) {
   })
 }
 
+/**
+ * The corner the cursor is currently inside, or null on a straight.
+ *
+ * Deliberately NOT "the nearest corner": a cursor halfway down the back
+ * straight is not in a corner, and labelling it with whichever turn happens to
+ * be closest would put a corner readout on a piece of track that has none.
+ * Straight is a real answer.
+ */
+export function cornerAt(corners, index) {
+  if (!Array.isArray(corners)) return null
+  const i = strictNum(index)
+  if (!Number.isFinite(i)) return null
+  return corners.find((c) => i >= c.startIdx && i <= c.endIdx) ?? null
+}
+
 /** Index of the fastest point in the lap — the top-speed marker. */
 export function topSpeedIndex(pts) {
   if (!Array.isArray(pts) || pts.length === 0) return null

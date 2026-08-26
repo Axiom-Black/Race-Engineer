@@ -19,8 +19,10 @@ import FaultNotice from './FaultNotice'
 import ChannelsTab from './ChannelsTab'
 import InstrumentCluster from './InstrumentCluster'
 import CircuitMap from './CircuitMap'
-import { advanceCursor } from '../lib/gauges'
-import { distanceAxis, xAt, indexAtFraction } from '../lib/traceAxis'
+import MapInstruments from './MapInstruments'
+import { detectCorners, cornerAt } from '../lib/corners'
+import { distanceAxis, xAt, nearestIndex } from '../lib/traceAxis'
+import { lapTimeAxis, advanceTime, indexAtTime, timeAtIndex } from '../lib/replay'
 import { buildComparison } from '../lib/sessionCompare'
 import { personalBest, thermalPeaks, tyreCompound, circuitHistory } from '../lib/sessionSummary'
 
@@ -172,7 +174,7 @@ function Plot({ pts, refPts, pick, color, label, unit, cursor, onScrub, height =
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect()
           const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
-          onScrub(indexAtFraction(axis, frac))
+          onScrub(nearestIndex(axis, frac))
         }}
       >
         {zero && lo < 0 && (
@@ -224,7 +226,7 @@ function DeltaPlot({ delta, axis, cursor, onScrub, refLabel }) {
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect()
           const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
-          onScrub(indexAtFraction(axis, frac))
+          onScrub(nearestIndex(axis, frac))
         }}
       >
         <line x1="0" y1={y(0)} x2={W} y2={y(0)} stroke={C.line} strokeWidth="1" vectorEffect="non-scaling-stroke" />
@@ -309,6 +311,15 @@ export default function SessionReport({ sessionId, sessions = [], onBack }) {
   const metrics = useMemo(() => lapMetrics(pts), [pts])
   // null when either lap has no recorded time — no fabricated comparison.
   const delta = useMemo(() => deltaTrace(traceLap, refTraceLap), [traceLap, refTraceLap])
+
+  // The selected lap's time, reconciled against the .ldx summary — what makes
+  // real-time replay possible on both the Instruments tab and the Track Map.
+  // Above the early returns, because a hook after a conditional return is a
+  // hook that does not always run.
+  const lapSeconds = useMemo(
+    () => displayLapTimeS(state.laps.find((l) => l.lap_no === lapNo), state.session, state.laps),
+    [state.laps, lapNo, state.session],
+  )
 
   // keep the cursor in range when the lap changes
   useEffect(() => {
@@ -419,11 +430,11 @@ export default function SessionReport({ sessionId, sessions = [], onBack }) {
           refLabel={refTraceLap ? `lap ${refTraceLap.lap}` : null}
           cursor={cursor}
           setCursor={setCursor}
-          lapSeconds={displayLapTimeS(laps.find((l) => l.lap_no === lapNo), session, laps)}
+          lapSeconds={lapSeconds}
         />
       )}
       {tab === 'Track Map' && trace && (
-        <TrackMapTab pts={pts} aspect={trace.aspect} cursor={cursor} setCursor={setCursor} />
+        <TrackMapTab pts={pts} aspect={trace.aspect} cursor={cursor} setCursor={setCursor} lapSeconds={lapSeconds} lengthKm={session?.length_km} />
       )}
     </div>
   )
@@ -786,17 +797,20 @@ function PerformanceTab({ metrics, pts, lapValid, session, sessions }) {
  * real elapsed time: a dropped frame slows an interval-based replay
  * permanently, while rAF simply advances further on the next tick.
  *
- * The persisted trace indexes by DISTANCE fraction, not seconds, so the lap's
- * own time is what makes real-time playback possible at all.
+ * The clock is SECONDS, not sample indices. Points are spent on corners now
+ * (lib/resample.js), so stepping the index at a constant rate would crawl
+ * through every corner and fire down every straight — the inverse of what the
+ * car did. lib/replay.js holds the reasoning and the maths.
  */
-function useReplay(pointCount, lapSeconds, setCursor) {
+function useReplay(pts, lapSeconds, setCursor) {
   const [playing, setPlaying] = useState(false)
   const [rate, setRate] = useState(1)
   const frame = useRef(0)
   const last = useRef(0)
-  const pos = useRef(0)
+  const clock = useRef(0)
 
-  const canPlay = pointCount > 1 && Number.isFinite(Number(lapSeconds)) && Number(lapSeconds) > 0
+  const times = useMemo(() => lapTimeAxis(pts, lapSeconds), [pts, lapSeconds])
+  const canPlay = Boolean(times) && pts.length > 1
 
   useEffect(() => {
     if (!playing || !canPlay) return
@@ -804,8 +818,8 @@ function useReplay(pointCount, lapSeconds, setCursor) {
       if (!last.current) last.current = ts
       const dt = (ts - last.current) / 1000
       last.current = ts
-      pos.current = advanceCursor(pos.current, pointCount, dt, lapSeconds, rate)
-      setCursor(Math.floor(pos.current))
+      clock.current = advanceTime(clock.current, dt, lapSeconds, rate)
+      setCursor(indexAtTime(times, clock.current))
       frame.current = requestAnimationFrame(tick)
     }
     frame.current = requestAnimationFrame(tick)
@@ -813,40 +827,29 @@ function useReplay(pointCount, lapSeconds, setCursor) {
       cancelAnimationFrame(frame.current)
       last.current = 0
     }
-  }, [playing, rate, pointCount, lapSeconds, setCursor, canPlay])
+  }, [playing, rate, times, lapSeconds, setCursor, canPlay])
 
-  // Scrubbing by hand takes over: keep playback from snapping back to where
-  // the animation had got to.
+  // Scrubbing by hand takes over: move the CLOCK to the scrubbed point, so
+  // playback resumes from there instead of snapping back to where the
+  // animation had got to.
   const seek = (i) => {
-    pos.current = i
+    clock.current = timeAtIndex(times, i)
     setCursor(i)
   }
 
-  return { playing, setPlaying, rate, setRate, canPlay, seek }
+  return { playing, setPlaying, rate, setRate, canPlay, seek, times }
 }
 
-function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor, lapSeconds }) {
-  const replay = useReplay(pts.length, lapSeconds, setCursor)
-  if (!pts.length) return <div style={{ color: C.dim, padding: 20 }}>No trace for this lap.</div>
-  const P = { pts, refPts, cursor, onScrub: replay.seek }
+/**
+ * The transport bar — play/pause, speed, and a scrub slider.
+ *
+ * Shared by the Instruments tab and the Track Map, because a driver who learns
+ * the control in one place should not meet a different one in the other.
+ */
+function Transport({ replay, pts, cursor, trailing }) {
   return (
-    <Card style={{ padding: '16px 18px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3 }}>INSTRUMENTS — scrub by distance</div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          {refPts && (
-            <span style={{ fontSize: 10, color: C.dim, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 16, height: 0, borderTop: `1.5px dashed ${C.silver2}`, opacity: 0.7 }} />
-              {refLabel}
-            </span>
-          )}
-          <span style={{ fontFamily: font.mono, fontSize: 12, color: C.pink }}>{(pts[cursor]?.d * 100).toFixed(1)}% of lap</span>
-        </div>
-      </div>
-      {/* Transport + scrubber. Playing is disabled rather than hidden when the
-          lap has no time: hiding it would leave a driver wondering where the
-          control went, while a disabled control with a reason explains itself. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => replay.setPlaying(!replay.playing)}
@@ -882,7 +885,7 @@ function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor, lapSe
           ))}
         </div>
         <span style={{ fontFamily: font.mono, fontSize: 11, color: C.dim, marginLeft: 'auto' }}>
-          {pts.length} samples
+          {trailing ?? `${pts.length} samples`}
         </span>
       </div>
       <input
@@ -894,6 +897,32 @@ function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor, lapSe
         }}
         style={{ width: '100%', marginBottom: 14, accentColor: C.pink }}
       />
+    </>
+  )
+}
+
+function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor, lapSeconds }) {
+  const replay = useReplay(pts, lapSeconds, setCursor)
+  if (!pts.length) return <div style={{ color: C.dim, padding: 20 }}>No trace for this lap.</div>
+  const P = { pts, refPts, cursor, onScrub: replay.seek }
+  return (
+    <Card style={{ padding: '16px 18px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3 }}>INSTRUMENTS — scrub by distance</div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {refPts && (
+            <span style={{ fontSize: 10, color: C.dim, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 16, height: 0, borderTop: `1.5px dashed ${C.silver2}`, opacity: 0.7 }} />
+              {refLabel}
+            </span>
+          )}
+          <span style={{ fontFamily: font.mono, fontSize: 12, color: C.pink }}>{(pts[cursor]?.d * 100).toFixed(1)}% of lap</span>
+        </div>
+      </div>
+      {/* Transport + scrubber. Playing is disabled rather than hidden when the
+          lap has no time: hiding it would leave a driver wondering where the
+          control went, while a disabled control with a reason explains itself. */}
+      <Transport replay={replay} pts={pts} cursor={cursor} />
 
       <InstrumentCluster point={pts[Math.min(cursor, pts.length - 1)]} />
       {delta && <DeltaPlot delta={delta} axis={distanceAxis(pts)} cursor={cursor} onScrub={setCursor} refLabel={refLabel} />}
@@ -914,8 +943,13 @@ function InstrumentsTab({ pts, refPts, delta, refLabel, cursor, setCursor, lapSe
 }
 
 // ── Track Map ─────────────────────────────────────────────────────
-function TrackMapTab({ pts, aspect, cursor, setCursor }) {
-  const cur = pts[cursor]
+function TrackMapTab({ pts, aspect, cursor, setCursor, lapSeconds, lengthKm }) {
+  const replay = useReplay(pts, lapSeconds, setCursor)
+  // Detected once here and shared with the map AND the panel, so the badge the
+  // map lights up and the corner the panel names can never disagree.
+  const corners = useMemo(() => detectCorners(pts), [pts])
+  const active = cornerAt(corners, cursor)
+  if (!pts.length) return <div style={{ color: C.dim, padding: 20 }}>No trace for this lap.</div>
   return (
     <Card style={{ padding: '16px 18px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
@@ -925,19 +959,28 @@ function TrackMapTab({ pts, aspect, cursor, setCursor }) {
           <span>⚙ gear at apex</span>
         </div>
       </div>
-      <CircuitMap pts={pts} aspect={aspect} cursor={cursor} onScrub={setCursor} />
-      <input
-        type="range" min={0} max={pts.length - 1} value={cursor}
-        onChange={(e) => setCursor(Number(e.target.value))}
-        style={{ width: '100%', marginTop: 12, accentColor: C.pink }}
+      {/* The same transport as the Instruments tab, not a second one: the map
+          is where watching the lap back actually pays, because the dot moving
+          round the circuit is what tells a driver WHERE the trace they are
+          reading happened. */}
+      <Transport
+        replay={replay}
+        pts={pts}
+        cursor={cursor}
+        trailing={`${corners.length} corners detected`}
       />
-      <div style={{ display: 'flex', gap: 18, marginTop: 8, fontFamily: font.mono, fontSize: 12, color: C.silver2, flexWrap: 'wrap' }}>
-        <span>{(cur?.d * 100).toFixed(1)}% lap</span>
-        <span>{n1(cur?.s)} km/h</span>
-        <span>thr {n1(cur?.t)}%</span>
-        <span>brk {n1(cur?.b)}%</span>
-        <span>gear {cur?.g ?? '—'}</span>
-        <span>GPS is game-world (relative positions exact)</span>
+      <CircuitMap
+        pts={pts}
+        corners={corners}
+        activeCorner={active?.n}
+        aspect={aspect}
+        cursor={cursor}
+        onScrub={(i) => { replay.setPlaying(false); replay.seek(i) }}
+      />
+      <MapInstruments point={pts[Math.min(cursor, pts.length - 1)]} corner={active} lengthKm={lengthKm} />
+      <div style={{ marginTop: 4, fontSize: 10, color: C.dim }}>
+        Corner numbering is derived from this lap and is not the circuit's official numbering ·
+        GPS is game-world (relative positions exact)
       </div>
     </Card>
   )
