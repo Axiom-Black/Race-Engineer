@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { parseLd, decodeAll, lapBoundaries } from './motec/ld.js'
 import {
-  DETECT_DEFAULTS, smooth, lateralCapability, detectCornersFromG,
+  DETECT_DEFAULTS, smooth, lateralCapability, median, detectCornersFromG,
 } from './cornerDetect.js'
 
 const RATE = 25
@@ -162,15 +166,97 @@ describe('detectCornersFromG', () => {
   })
 })
 
+describe('median', () => {
+  it('takes the middle of an odd and an even list', () => {
+    expect(median([3, 1, 2])).toBe(2)
+    expect(median([4, 1, 2, 3])).toBe(2.5)
+  })
+  it('is 0 when there is nothing to take one of', () => {
+    expect(median([])).toBe(0)
+    expect(median(null)).toBe(0)
+    expect(median([null, 'x', undefined])).toBe(0)
+  })
+})
+
+describe('robustness of the scale', () => {
+  // THE POINT OF THE TWO-PASS DESIGN, and the reason it exists.
+  //
+  // The first version took its yardstick from a session-wide percentile of
+  // |G_lat|, which put the whole answer on one scalar with a ±12% tolerance
+  // against the real export. A car with unfamiliar grip, a wet session, or a
+  // circuit with a different straight-to-corner ratio walks out of that band —
+  // and the failure is silent, with corners quietly missing.
+  //
+  // The yardstick is now the lap's own typical corner. These tests pin that the
+  // hint barely matters, because that is what will decide whether this survives
+  // a car nobody here has driven.
+
+  // Six corners of clearly different loads, plus an exit tail after each.
+  const circuit = lap(
+    hold(2, 0),
+    hold(2, 1.6), hold(1, 0.35), hold(1.5, 0),
+    hold(2, -1.5), hold(1, -0.3), hold(1.5, 0),
+    hold(2, 1.2), hold(1, 0.3), hold(1.5, 0),
+    hold(2, -1.7), hold(1, -0.35), hold(1.5, 0),
+    hold(2, 1.4), hold(1, 0.3), hold(1.5, 0),
+    hold(2, -1.3), hold(1, -0.3), hold(2, 0),
+  )
+  const truth = 6
+
+  it('finds the corners and rejects every exit tail', () => {
+    expect(detectCornersFromG(circuit, RATE, { capability: 1.6 })).toHaveLength(truth)
+  })
+
+  it('SURVIVES A WILDLY WRONG CAPABILITY HINT', () => {
+    // A 27x range on the real export; a 20x range here. Under the old
+    // single-pass form the answer moved well inside this.
+    for (const hint of [0.3, 0.5, 1.0, 1.6, 2.5, 4.0, 6.0]) {
+      expect(detectCornersFromG(circuit, RATE, { capability: hint })).toHaveLength(truth)
+    }
+  })
+
+  it('is unmoved by one kerb strike', () => {
+    // A 3 G moment is not a corner and must not redefine what one is. The old
+    // form scaled its accept bar off a high percentile, so a big enough
+    // outlier pulled the bar up and started rejecting real corners.
+    const withStrike = lap(circuit, hold(0.3, 3.0), hold(2, 0))
+    expect(detectCornersFromG(withStrike, RATE, { capability: 1.6 }).length)
+      .toBeGreaterThanOrEqual(truth)
+  })
+
+  it('is unmoved by how much of the lap is straight', () => {
+    // Le Mans is mostly straight and Monaco mostly corners. A yardstick taken
+    // over the time distribution reads those as different cars; a median over
+    // the corners themselves does not.
+    const monaco = detectCornersFromG(circuit, RATE, { capability: 1.6 }).length
+    const leMans = detectCornersFromG(lap(circuit, hold(90, 0)), RATE, { capability: 1.6 }).length
+    expect(leMans).toBe(monaco)
+  })
+
+  it('still scales with the car — half the grip, same corners', () => {
+    const half = circuit.map((v) => v / 2)
+    expect(detectCornersFromG(half, RATE, { capability: 0.8 }).length).toBe(truth)
+    // ...and with no hint at all, since the hint is only a bootstrap now.
+    expect(detectCornersFromG(half, RATE).length).toBe(truth)
+  })
+
+  it('does not invent corners on a lap that has none', () => {
+    // The failure mode of a self-normalising scale: with no real corners, the
+    // median is taken over noise and everything clears a bar scaled to noise.
+    const noise = Array.from({ length: 3000 }, (_, i) => Math.sin(i / 7) * 0.02)
+    expect(detectCornersFromG(noise, RATE, { capability: 1.6 })).toEqual([])
+  })
+})
+
 describe('the defaults', () => {
   it('are the swept values, and every threshold is dimensionless', () => {
     expect(DETECT_DEFAULTS).toMatchObject({
-      capPercentile: 0.97, onFrac: 0.15, peakFrac: 0.55, relProm: 0.35,
+      capPercentile: 0.97, bootFrac: 0.15, edgeFrac: 0.30, cornerFrac: 0.50, relProm: 0.35,
     })
     // The load-bearing property: no threshold is an absolute G number. "0.25 G"
     // is a firm corner in an LMP3 and a rounding error in a Hypercar, and a
     // detector built on one would not travel to a car we have never seen.
-    for (const key of ['onFrac', 'peakFrac', 'relProm', 'capPercentile']) {
+    for (const key of ['bootFrac', 'edgeFrac', 'cornerFrac', 'relProm', 'capPercentile']) {
       expect(DETECT_DEFAULTS[key]).toBeGreaterThan(0)
       expect(DETECT_DEFAULTS[key]).toBeLessThanOrEqual(1)
     }
@@ -192,5 +278,53 @@ describe('the defaults', () => {
     const at50 = at25.flatMap((v) => [v, v])
     expect(detectCornersFromG(at50, 50, { capability: 1.6 }).length)
       .toBe(detectCornersFromG(at25, 25, { capability: 1.6 }).length)
+  })
+})
+
+// ── the real export ───────────────────────────────────────────────
+// Synthetic shapes prove the rules; this proves they survive a real car on a
+// real circuit, which is the only evidence that counts for generalisation.
+const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '../../../fixtures')
+
+function cotaLaps() {
+  const bytes = new Uint8Array(readFileSync(join(FIXTURES, 'cota_gte_sanitized.ld')))
+  const ld = parseLd(bytes)
+  decodeAll(bytes, ld)
+  const ch = ld.channels['G Force Lat']
+  const rate = ch.sampleRateHz
+  const bounds = lapBoundaries(ld)
+  // Four full laps: the out-lap and the three timed ones. The trailing partial
+  // is a fragment, not a lap, and is excluded.
+  return {
+    rate,
+    laps: [0, 1, 2, 3].map((i) =>
+      ch.samples.slice(Math.floor(bounds[i].startS * rate), Math.floor(bounds[i + 1].startS * rate)),
+    ),
+  }
+}
+
+describe('against the real COTA export', () => {
+  const { rate, laps } = cotaLaps()
+
+  it('finds all 20 of the circuit\'s corners, on every lap', () => {
+    for (const g of laps) {
+      expect(detectCornersFromG(g, rate, { capability: 1.607 })).toHaveLength(20)
+    }
+  })
+
+  it('KEEPS FINDING 20 ACROSS A 27x ERROR IN THE CAPABILITY HINT', () => {
+    // The measured session capability is 1.607. The single-pass form held 20
+    // only between 1.40 and 1.80 — a ±12% tolerance on one scalar, with silent
+    // corner loss outside it. This is the test that made the rework worth
+    // doing, and the number it defends is the tolerance, not the 20.
+    for (const hint of [0.3, 0.5, 0.8, 1.0, 1.4, 1.607, 2.0, 2.4, 3.0, 4.0, 5.0, 8.0]) {
+      for (const g of laps) {
+        expect(detectCornersFromG(g, rate, { capability: hint })).toHaveLength(20)
+      }
+    }
+  })
+
+  it('needs no hint at all — the lap supplies its own scale', () => {
+    for (const g of laps) expect(detectCornersFromG(g, rate)).toHaveLength(20)
   })
 })
