@@ -168,7 +168,7 @@ class TestComputeRunCost:
         assert cost.output_cost_usd > cost.input_cost_usd
 
     def test_output_is_five_times_input_rate_for_sonnet(self) -> None:
-        """Sonnet: $3 input, $15 output — 5x ratio."""
+        """Sonnet 5: $2 input, $10 output — the 5x ratio holds across the tier."""
         usage = TokenUsage(input_tokens=1_000_000, output_tokens=1_000_000)
         cost = compute_run_cost(usage, Model.SONNET, batch=False)
         assert cost.output_cost_usd == pytest.approx(cost.input_cost_usd * 5, rel=0.01)
@@ -202,6 +202,68 @@ class TestComputeRunCost:
         usage = TokenUsage(input_tokens=1000, output_tokens=500)
         assert compute_run_cost(usage, Model.HAIKU, batch=True).batch_discount_applied is True
         assert compute_run_cost(usage, Model.HAIKU, batch=False).batch_discount_applied is False
+
+    # ── Cache writes (added 27 Aug 2026) ──────────────────────────
+    #
+    # compute_run_cost used to sum input + output + cache_read only, so
+    # cache_write_tokens was accepted and silently billed at zero. These pin
+    # the fix. Each one goes red if the cache_write term is deleted.
+
+    def test_cache_write_is_billed_at_all(self) -> None:
+        """The regression that existed: writes cost something."""
+        usage = TokenUsage(cache_write_tokens=10_000)
+        cost = compute_run_cost(usage, Model.SONNET, batch=False)
+        assert cost.cache_write_cost_usd > 0
+        assert cost.total_usd > 0
+
+    def test_cache_write_costs_125_percent_of_input(self) -> None:
+        """Writes bill at 1.25x input — not 1x, which the old comment claimed."""
+        written = TokenUsage(cache_write_tokens=10_000)
+        fresh = TokenUsage(input_tokens=10_000)
+        write_cost = compute_run_cost(written, Model.SONNET, batch=False)
+        fresh_cost = compute_run_cost(fresh, Model.SONNET, batch=False)
+        assert write_cost.cache_write_cost_usd == pytest.approx(
+            fresh_cost.input_cost_usd * 1.25, rel=0.01
+        )
+
+    def test_cache_write_costs_more_than_cache_read(self) -> None:
+        """A write is the expensive half of caching; a read is the payoff."""
+        usage = TokenUsage(cache_read_tokens=10_000, cache_write_tokens=10_000)
+        cost = compute_run_cost(usage, Model.OPUS, batch=False)
+        assert cost.cache_write_cost_usd > cost.cache_read_cost_usd
+
+    def test_cache_write_included_in_total(self) -> None:
+        """Total is the sum of all four components, not three of them."""
+        usage = TokenUsage(
+            input_tokens=1_000, output_tokens=2_000,
+            cache_read_tokens=3_000, cache_write_tokens=4_000,
+        )
+        c = compute_run_cost(usage, Model.HAIKU, batch=False)
+        assert c.total_usd == pytest.approx(
+            c.input_cost_usd + c.output_cost_usd
+            + c.cache_read_cost_usd + c.cache_write_cost_usd,
+            rel=1e-9,
+        )
+
+    def test_batch_discount_applies_to_cache_writes_too(self) -> None:
+        usage = TokenUsage(cache_write_tokens=10_000)
+        sync = compute_run_cost(usage, Model.SONNET, batch=False)
+        batched = compute_run_cost(usage, Model.SONNET, batch=True)
+        assert batched.total_usd == pytest.approx(sync.total_usd * 0.5, rel=0.01)
+
+    # ── Rate card (re-verified 27 Aug 2026) ───────────────────────
+
+    def test_sonnet_is_cheaper_than_it_was_on_4_6(self) -> None:
+        """Sonnet 5 is $2/$10; the retired 4.6 pin was $3/$15."""
+        usage = TokenUsage(input_tokens=1_000_000, output_tokens=1_000_000)
+        cost = compute_run_cost(usage, Model.SONNET, batch=False)
+        assert cost.input_cost_usd == pytest.approx(2.00, rel=0.001)
+        assert cost.output_cost_usd == pytest.approx(10.00, rel=0.001)
+
+    def test_model_ids_are_not_date_suffixed(self) -> None:
+        """A snapshot suffix on a model ID is drift waiting to happen."""
+        for m in Model:
+            assert not any(part.isdigit() and len(part) == 8 for part in m.value.split("-")), m.value
 
 
 # ── Estimate run cost ─────────────────────────────────────────────

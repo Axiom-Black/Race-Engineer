@@ -104,11 +104,29 @@ class OrchestratorResult:
 
 # ── Helper: single Claude call ────────────────────────────────────
 
+# Output ceilings. These are NOT cost controls — they are truncation guards.
+#
+# Raised 27 Aug 2026 from 800/600/900. The models in RUN_CONFIGS are now
+# Opus 5 / Sonnet 5 / Haiku 4.5, and on Opus 5 **thinking is on by default**:
+# omitting the `thinking` parameter runs adaptive thinking, and thinking tokens
+# count against max_tokens. At 800 the orchestrator could spend its whole
+# ceiling reasoning and return a truncated JSON plan — which `_safe_json` would
+# then raise on, from a half-object, with no signal about the real cause.
+#
+# Do not lower these to save money. Spend is governed by the tokens actually
+# produced, not by the ceiling; a ceiling only decides whether the reply
+# survives. To reduce cost, use `output_config={"effort": ...}` (available in
+# the pinned SDK, 1.2.0) or the Batch API routing already in RunConfig.
+ORCHESTRATOR_MAX_TOKENS = 4000   # small JSON plan + adaptive thinking headroom
+SPECIALIST_MAX_TOKENS = 4000     # 3 findings + thinking headroom
+SYNTHESIZER_MAX_TOKENS = 8000    # four sections, the longest output in the run
+
+
 async def _call(
     system: str,
     user: str,
     model: str,
-    max_tokens: int = 800,
+    max_tokens: int = ORCHESTRATOR_MAX_TOKENS,
 ) -> tuple[str, int, int]:
     """
     Call the Anthropic API.
@@ -199,7 +217,7 @@ async def run_race_engineer(inp: OrchestratorInput) -> OrchestratorResult:
             system=DOMAIN_AGENTS[agent_id],
             user=f"{ctx}\n\nYour assigned task: {task}",
             model=run_cfg.specialist_model.value,
-            max_tokens=600,
+            max_tokens=SPECIALIST_MAX_TOKENS,
         )
         return agent_id, text, i, o
 
@@ -230,7 +248,7 @@ async def run_race_engineer(inp: OrchestratorInput) -> OrchestratorResult:
         ),
         user=f"{ctx}\n\nReports:\n{combined_reports}",
         model=run_cfg.specialist_model.value,
-        max_tokens=600,
+        max_tokens=SPECIALIST_MAX_TOKENS,
     )
     result.input_tokens += i
     result.output_tokens += o
@@ -248,7 +266,7 @@ async def run_race_engineer(inp: OrchestratorInput) -> OrchestratorResult:
         ),
         user=f"{ctx}\n\nSpecialist reports:\n{combined_reports}",
         model=run_cfg.synthesizer_model.value,
-        max_tokens=900,
+        max_tokens=SYNTHESIZER_MAX_TOKENS,
     )
     result.input_tokens += i
     result.output_tokens += o

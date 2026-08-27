@@ -48,13 +48,31 @@ phases — receive AI race-engineering debriefs from a ten-agent system.
 
 ## Current mission — Tier 1 Pilot (Phase 1: Launch)
 
-Ship the solo-driver telemetry product on a **$0/month stack**. The AI agent
-stays dark this phase. Decided 9 Aug 2026; supersedes any conflicting hosting
-notes in older docs.
+Ship the solo-driver telemetry product on **hosting that costs this product
+nothing at the margin**. The AI agent stays dark this phase. Decided
+9 Aug 2026; supersedes any conflicting hosting notes in older docs.
+
+> **This is no longer a "$0/month stack", and saying so was wrong** (corrected
+> 27 Aug 2026 against the live accounts). Both platforms are on **paid Pro
+> plans that exist for Axiom Black generally, not for this product**: the
+> Supabase org `axiom black` is a **Vercel-managed integration org**
+> (`vercel_icfg_…`) on **Pro**, billed through Vercel Marketplace and holding
+> **four projects**, of which this is one; the Vercel team `axiom-black` is
+> also on **Pro**. So Race Engineer's true cost is *a share of a bill that
+> already exists* — not zero, and not the whole of either plan.
+>
+> **What is still true, and is the point:** measured against production, this
+> product consumes **~100 kB of Postgres and ~1.04 MB of Storage per session**,
+> against Pro's included 8 GB and 100 GB — ceilings of roughly **80,000 and
+> 96,000 sessions**. It adds no incremental charge and will not for years. Say
+> that, not "$0/month" — the distinction matters the moment someone reasons
+> about unit economics from this line.
 
 **Stack (Tier 1):**
-- **Frontend** — Vite + React SPA, deployed to **Vercel** (free tier).
-- **Database / Auth / Storage** — **Supabase** (free tier): Postgres with a
+- **Frontend** — Vite + React SPA, deployed to **Vercel** (team `axiom-black`,
+  Pro).
+- **Database / Auth / Storage** — **Supabase** (org `axiom black`, Pro):
+  Postgres with a
   slimmed Phase 1 schema, Supabase Auth for identity, Row-Level Security for
   per-driver isolation, Storage buckets for raw `.ld`/`.ldx`/`.svm` files.
 - **No Python/FastAPI backend in the pilot.** The browser talks to Supabase
@@ -91,7 +109,7 @@ is "done").
    the source of truth (reuse its UI only). Unit tests assert against the
    committed golden masters (`test_parser_parity.py` defines the contract;
    in the pilot it is enforced as JS-vs-golden-master).
-5. Create the Supabase project (run cost confirmation first — free tier),
+5. Create the Supabase project (run cost confirmation first),
    apply the Phase 1 schema + RLS policies, wire Auth.
 6. Port `ByteCraft_SessionReport.jsx` (Summary / Performance / Instruments /
    Track Map tabs, shared lap selector + synced cursor) and
