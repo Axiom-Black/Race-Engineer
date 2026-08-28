@@ -381,12 +381,55 @@ null` catches nothing worth catching. *Codex III.2, IV.3.*
 
 ---
 
+### A20 · Ask what the SMALLEST WORLD is in which your test passes
+
+A19 says break the code and watch the test go red. This is its companion, and
+it catches a class A19 cannot: tests that are **correct, meaningful, and
+verifying a smaller world than the claim they are taken to support.**
+
+Three defects reached a live app in one afternoon, all three behind a green
+suite of 661 tests:
+
+| Claim in the commit | World the tests actually covered |
+| --- | --- |
+| "every number on screen follows the toggle" | one tab, rendered in isolation |
+| "a note lands where the driver put it" | one **static** anchor — no test moved the pointer |
+| "click the map to pick a place" | clicks resolved by geometry that **cannot fail loudly** |
+
+Every one of those tests would go red if you broke the thing it named. They had
+teeth. They were simply pointed at a world one size smaller than the feature
+lived in — and nothing in the process compared the two.
+
+**The check is one question, asked after the test is written:** *what is the
+smallest world in which this passes?* Then compare that to the sentence you are
+about to put in the commit message. If the sentence is bigger, either shrink the
+sentence or grow the test. In all three cases here a single integration test —
+click the real control on the real screen — would have caught what dozens of
+unit tests did not.
+
+Two specific smells this surfaces, both worth checking by name:
+
+- **A component rendered in isolation cannot verify a claim about a screen.**
+  Isolation is what makes a unit test fast and precise; it is also what makes it
+  silent about everything outside the component.
+- **A helper with no failure mode will answer anything you ask it.**
+  `nearestPointIndex` has no distance threshold, so a click 54 px off the track
+  returned a confident, plausible, wrong answer. When a function cannot say "I
+  don't know", every test of it passes and every *use* of it is a guess. Ask
+  what a helper does at the edge of its competence before trusting it in a
+  click handler. *Codex III.2, IV.1.*
+
+---
+
+---
+
 ## Part B — Session trail (newest first)
 
 Each entry: date · what shipped · the method insight worth carrying forward.
 
 | Date | Shipped | Method insight |
 | --- | --- | --- |
+| 28 Aug 2026 | Week 0 merged (#51/#52/#53); three post-merge defects fixed; `track_notes` applied to production, RLS verified | **Ask what the smallest world is in which your test passes.** Full pattern in **A20** — three defects shipped behind 661 green tests, each test correct and each pointed at a world one size smaller than the claim it was taken to support. **The second lesson is about deployment, and it is the more expensive one: CI proving a migration is not the same as the migration being applied.** Ring 3 builds its own Postgres from the same files it is testing, so it is structurally incapable of noticing that production never got them — the gates were green while the feature was broken for the only user. Anywhere a gate constructs its own copy of the thing it validates, ask what real artefact it is *not* looking at. **Third, smaller but reusable: a helper that cannot say "I don't know" will answer anything.** `nearestPointIndex` has no distance threshold, so a click on a label 54 px off the racing line returned a confident wrong point — and the corner a driver was pointing at became the one corner they could not select. Before wiring a lookup into a click handler, ask what it does at the edge of its competence; "always returns the nearest" is a different contract from "returns the thing you clicked". **Also worth carrying: my first fix for the notes bug was wrong, and a PRE-EXISTING test caught it.** I had defined "unsaved work" as "the box has text", which froze boxes merely prefilled from a saved note. The regression suite earning its keep against the person who wrote it is the argument for keeping old assertions when they seem to be in the way. |
 | 26 Aug 2026 | Week 0 closed — W0.1 build marker, W0.2 imperial ↔ SI, W0.3 Track Notes (schema + RLS + logic + UI); LMU roster inventory filled | **Break the code and watch the test go red, or you do not know whether you wrote a test.** Full pattern in **A19** — two carefully written, well-named probes passed a deliberately sabotaged implementation, and their text gave no hint of it. **The design lesson of the session is a storage one, and it appeared three times in three different guises:** units convert only at the *display edge* because converting at ingest makes two drivers' archives numerically incompatible; notes anchor to a *distance span* rather than a corner number because numbering is ours and moved twice in three days; and a note's provenance is a *copy* of the session's identity rather than a join, because a join is unreadable in exactly the case the design exists for. Same rule each time: **store the invariant, derive the convenience.** The tell for which is which is to ask what happens when the other thing changes — the driver's preference, the detector's output, the session's existence — and whichever survives that is what belongs on disk. **A constraint worth carrying:** `session_key` is stored as text *beside* the nullable foreign key it duplicates, which looks redundant until you notice SQL NULLs compare as **distinct** — a unique key over a nullable column silently stops constraining anything the moment that column nulls. That failure mode is invisible in review and invisible in a passing suite; the only thing that catches it is an acceptance check that deletes the parent row and *then* tries the duplicate. **And on blockers that turn out to be smaller than they look:** the track roster had no reachable source for its numeric columns, which read as a hard blocker until noticing that length, longest straight and corner count are all *measured at upload* — so the table fills itself as the work proceeds and only the one genuinely external figure (official corner count) needs anybody. Before escalating a missing input, check how much of it your own pipeline already produces. |
 | 26 Aug 2026 | Corner detection re-scaled off the lap's own typical corner (27× input tolerance, was ±12%) | **Measure the tolerance, not the answer — and let the sweep refute your hypothesis.** Full pattern in **A18**. The second lesson is a support one that is really a product one: the reported defect (14 corners instead of 20) was not a defect at all — it was a session parsed by an older bundle, because parsing is client-side and derived data is written at upload. Diagnosing it took three exchanges and was only settled by noticing the uploaded session's channel summary was *numerically identical* to the committed fixture's, which proved it was the same export and therefore that the detector was not the variable. **When derived data is computed at write time, a stale record is indistinguishable from a broken feature** — and nothing in the UI named the build that produced either the page or the record. The cheap fix (a build marker) and the real fix (backfill from the raw files already in Storage) are both now the top blocker, because the next occurrence costs the same three exchanges. **A smaller habit worth keeping:** the fastest way to identify what a user is looking at was to compare a summary statistic of their data against a known artifact. Channel min/max is free, carries no PII, and uniquely identified the file. |
 | 26 Aug 2026 | Corner detection moved to ingest, on full-rate lateral G: 20/20 at COTA on every lap | **The ceiling was the channel, not the algorithm.** Full pattern in **A17**. The session's second lesson is about the difference between a target and a criterion: the ask was "get all 20", and it is trivially possible to reach 20 on one circuit by tuning until the count matches — which would have shipped a detector that fails on the first track nobody here has driven. What made the result trustworthy was refusing to accept any setting that was not (a) a *plateau*, with two parameters varying across a range without changing the answer, (b) *repeatable* on four independent laps, and (c) built from **dimensionless** thresholds, so a test can prove the same lap at half the grip and double the sample rate returns the same corners. The number and the confidence came from the same discipline. **Also worth carrying:** normalising a measurement per-lap felt natural and was wrong — the yardstick (lateral capability) belongs to the car and the circuit, so a lap where the driver never pushed re-scaled its own noise into signal. When you divide by something, ask what population that something should be measured over; "the thing in front of me" is a default, not an answer. |
