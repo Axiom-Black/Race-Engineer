@@ -49,16 +49,36 @@
 --
 -- Prefer `supabase db push` and this never comes up.
 
+-- ── WHY plpgsql AND NOT sql ──────────────────────────────────────────────────
+--
+-- A `language sql` body is parsed and validated when the function is CREATED,
+-- so it fails outright if `supabase_migrations.schema_migrations` does not
+-- exist yet. That is not hypothetical: Supabase creates the ledger on the first
+-- `supabase db push`, so a project that has only ever been changed by hand does
+-- not have it — and neither does the bare Postgres Ring 3 stands up. A
+-- migration that cannot be applied to a fresh database is not a migration.
+--
+-- Raising when the ledger is absent is also the RIGHT answer rather than a
+-- convenient one. Returning zero rows would be read by the client as "the
+-- database has no migrations", i.e. every one is missing — a loud, wrong alarm
+-- produced by a project that may be perfectly healthy. The client maps an error
+-- to UNKNOWN, which is exactly what "there is no ledger to compare against"
+-- means (see lib/schemaDrift.js).
 create or replace function public.applied_migrations()
 returns table (version text)
-language sql
+language plpgsql
 stable
 security definer
 set search_path = ''
 as $$
-  select m.version::text
-    from supabase_migrations.schema_migrations m
-   order by m.version
+begin
+  if to_regclass('supabase_migrations.schema_migrations') is null then
+    raise exception 'no migration ledger: this project has no supabase_migrations.schema_migrations'
+      using hint = 'Apply migrations with `supabase db push` — it creates and maintains the ledger.';
+  end if;
+  return query execute
+    'select m.version::text from supabase_migrations.schema_migrations m order by m.version';
+end;
 $$;
 
 comment on function public.applied_migrations() is

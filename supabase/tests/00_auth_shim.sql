@@ -33,6 +33,22 @@ create or replace function auth.uid() returns uuid
   as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 grant execute on function auth.uid() to authenticated, anon;
 
+-- ── supabase_migrations (the CLI's own ledger) ───────────────────
+-- Created HERE rather than in the acceptance test, because
+-- 20260828150000_migration_ledger_reader.sql reads it and a `language sql`
+-- function with `search_path = ''` has its body validated at CREATE time —
+-- so the schema must exist BEFORE the migrations run, not before the
+-- assertions. Shaped exactly as production: a test that passes against a
+-- differently-shaped table proves nothing.
+create schema if not exists supabase_migrations;
+create table if not exists supabase_migrations.schema_migrations (
+  version text primary key,
+  statements text[],
+  name text
+);
+-- Deliberately NO grant to authenticated. The whole point of the reader
+-- function is that this table stays unreachable — G3.11 asserts it.
+
 -- ── storage schema (migration 1 creates a bucket + object policies) ──
 create schema if not exists storage;
 grant usage on schema storage to authenticated, anon;

@@ -320,15 +320,8 @@ end $$;
 -- ════════════════════════════════════════════════════════════════
 reset role;
 
--- The shim does not create Supabase's own bookkeeping schema, so stand one up
--- with the two columns the function reads. Named to match production exactly:
--- a test that passes against a differently-shaped table proves nothing.
-create schema if not exists supabase_migrations;
-create table if not exists supabase_migrations.schema_migrations (
-  version text primary key,
-  statements text[],
-  name text
-);
+-- The ledger table itself lives in the shim (it must exist before the
+-- migrations run, not before these assertions). Seed a row to read back.
 insert into supabase_migrations.schema_migrations (version, name, statements)
 values ('20260810035850', 'phase1', array['create table secret_shape(...)'])
 on conflict (version) do nothing;
