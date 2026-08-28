@@ -548,4 +548,18 @@ describe('picking a note location on the map', () => {
     await userEvent.click(screen.getByRole('button', { name: /move to cursor/i }))
     expect(screen.queryByText(/pinned at/i)).toBeNull()
   })
+
+  it('CLICKING A CORNER BADGE pins that turn, which was the one place picking failed', async () => {
+    // Reported: "able to save a note at pinned locations everywhere but at the
+    // actual labelled Turn". The badge hangs off the racing line on a leader,
+    // so its click fell through to the nearest-trace-point handler and landed
+    // somewhere else. Now it pins by the corner's own identity.
+    render(<SessionReport sessionId="cur" sessions={[SESSION]} onBack={() => {}} />)
+    expect((await screen.findAllByText(/COTA/i)).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+
+    await userEvent.click(screen.getByRole('button', { name: /Note corner 2/i }))
+    expect(screen.getByText(/pinned at T2/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/NOTE THIS PLACE — T2/)).toBeInTheDocument()
+  })
 })

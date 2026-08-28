@@ -136,8 +136,40 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub, onPick, corne
         // The corner the cursor is inside lights up, so the map and the panel
         // beside it are visibly talking about the same turn.
         const live = b.n === activeCorner
+        /**
+         * THE BADGE IS A CONTROL, and it pins BY IDENTITY rather than by
+         * geometry.
+         *
+         * Badges hang on a leader line 54 px off the racing line and are then
+         * relaxed apart so they do not overlap, which pushes them further
+         * still. A click on one used to fall through to the map's generic
+         * handler, which answers "which trace point is nearest the pointer?" —
+         * and the nearest trace point to a relaxed badge is frequently a
+         * different part of the circuit. `nearestPointIndex` has no distance
+         * threshold, so it always answers, and always plausibly. The result was
+         * that the labelled turn was the one place a driver could not pin.
+         *
+         * The badge already knows which corner it is. Asking geometry to
+         * rediscover that was the mistake, so it now reports its own apex and
+         * stops the event before the map can second-guess it.
+         */
+        const pick = onPick
+          ? (e) => { e.stopPropagation(); onPick(b.apexIdx) }
+          : undefined
         return (
-        <g key={b.n}>
+        <g
+          key={b.n}
+          {...(onPick && {
+            role: 'button',
+            tabIndex: 0,
+            'aria-label': `Note corner ${b.n}`,
+            onClick: pick,
+            onKeyDown: (e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(e) }
+            },
+            style: { cursor: 'pointer' },
+          })}
+        >
           <line x1={b.ax} y1={b.ay} x2={b.bx} y2={b.by} stroke={live ? C.pink : '#3A4046'} strokeWidth="1.5" />
           <circle cx={b.bx} cy={b.by} r={BADGE_R} fill={live ? C.pinkBg : '#2E3338'} stroke={live ? C.pink : '#3A4046'} strokeWidth="1.5" />
           <text x={b.bx} y={b.by + 5} fill={live ? C.pink : C.silver3} fontSize="13" fontWeight="800" textAnchor="middle" fontFamily={font.ui}>
