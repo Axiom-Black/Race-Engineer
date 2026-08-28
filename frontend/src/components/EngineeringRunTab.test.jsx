@@ -7,7 +7,7 @@
 // capability — so the disabled button and the "nothing here is generated" line
 // are assertions, not comments.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 const listSessions = vi.fn()
@@ -106,9 +106,19 @@ describe('Engineering Run', () => {
   })
 
   it('works on the session the driver picks', async () => {
+    // `waitFor`, not a bare assertion, because loading is a CHAIN of two
+    // effects: listSessions() resolves and sets sessionId, then a second effect
+    // on [sessionId] fetches the row. The <select> renders on the first commit,
+    // so findByLabelText can resolve before the second effect has flushed —
+    // which is exactly how this passed locally and went red in CI, where the
+    // runner's parallelism changes the timing.
+    //
+    // The assertion is unchanged; only its patience is. Waiting for the
+    // observable outcome is the right shape for an async chain, and a bare
+    // expect() here was asserting a synchronous fact about one.
     render(<EngineeringRunTab />)
     expect(await screen.findByLabelText('Session')).toBeInTheDocument()
-    expect(getSession).toHaveBeenCalledWith('s1')
+    await waitFor(() => expect(getSession).toHaveBeenCalledWith('s1'))
   })
 
   it('tells a driver with no uploads what to do first', async () => {
