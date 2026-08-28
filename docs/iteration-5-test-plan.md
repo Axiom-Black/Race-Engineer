@@ -60,8 +60,9 @@ under the final parser, and nothing needs re-uploading by hand.
 
 ## 2 · Coverage: the LMU roster, with properties attached
 
-**The owner supplies the full LMU track list; the schedule is sorted against
-it.** The roster and its property columns live in
+**The owner supplied the full LMU track list (26 Aug 2026); the schedule is
+sorted against it.** 14 confirmed venues, plus alternate layouts at 12 of them
+and the full five-class car roster. The roster and its property columns live in
 **`docs/lmu-track-roster.md`** — length, longest straight, official corner
 count, corner density, elevation. Those columns are what make the list useful
 for choosing *which* track to drive on a given day: a track is a test case, and
@@ -70,6 +71,18 @@ what makes it a different test case is the code path it stresses, not its name.
 Coverage targets are set on the properties (longest, shortest, densest, longest
 straight, real elevation, plus COTA as control) rather than on a track count —
 one track can satisfy several, so six targets might take three tracks or six.
+
+**Alternate layouts count as separate test cases**, not duplicates: a removed
+chicane or a cut section changes length, corner count and corner density, which
+are three of the five columns that decide coverage. **Sarthe — Mulsanne No
+Chicanes** is therefore not a curiosity but the single best probe available for
+whether `lib/resample.js` starves a very long straight.
+
+The property columns are still blank, so the targets are not yet selectable up
+front — but they largely fill themselves, because length, longest straight and
+detected corner count are all measured at upload. Only the **official** corner
+count needs an outside source. The roster names four day-1 candidates that need
+no figures at all; see its §Coverage targets.
 
 ### Cars — one from each row, minimum
 
@@ -287,18 +300,38 @@ rather than by us.
 | **Source session (metadata)** | Provenance, not ownership. Survives that session's deletion as a dangling reference the UI can label rather than hide. |
 | **Owner** | RLS on `auth.uid()`, per the standing bar — a note is one driver's |
 
-**Open for discussion, per the owner:** the table shape, the RLS policy, the
-migration, and where the UI sits on the map and the report. Two questions I would
-want settled before writing the migration:
+**Both open questions answered by the owner, 26 Aug:**
 
-1. **Does a note revise or accumulate?** If a driver learns T4 differently in
-   the wet, is that a second note or an edit to the first? The conditions
-   annotation suggests accumulate — but then the map needs to decide which of
-   three notes to show at T4, and "all of them" gets crowded fast.
-2. **What does the map show when the anchor no longer matches a detected
-   corner?** Because a note anchored to a span will sometimes land between two
-   corners after a re-parse. Showing it on the trace at its own distance,
-   independent of corner numbering, is probably the honest answer.
+**1 · A note REVISES within a session, and ACCUMULATES across sessions.**
+
+Which is the right split, and it falls out of what a note is *for*. Within one
+session a driver is refining a single observation — the second thing they write
+about T4 replaces the first, because they have only driven it once and their
+understanding of that one run improved. Across sessions they are building
+knowledge: T4 in the wet and T4 in the dry are *both true*, and neither should
+overwrite the other.
+
+The mechanical consequence: **the unique key is (user, track, anchor, session)**.
+Writing again within the same session updates in place; a new session inserts a
+new revision alongside. The master then shows a stack per anchor, ordered by
+session, each labelled with its vehicle and conditions — which is exactly the
+per-corner history a driver would otherwise keep on paper.
+
+It also answers the crowding worry for free: the map shows the **most recent
+note whose conditions match the session being viewed**, with a count for the
+rest. Relevance, not recency alone.
+
+**2 · When an anchor no longer matches a detected corner, render it on the
+trace at its own distance.**
+
+The note is anchored to a place on the road, and the road did not move — only
+our numbering of it did. Drawing it at its own `d` keeps it correct regardless
+of what the detector does next, and keeps notes independent of a numbering that
+is explicitly ours rather than the circuit's. A note that cannot be tied to a
+detected corner is not an error state; it is a note beside the track.
+
+**Still open, and genuinely for discussion:** the table shape, the RLS policy,
+the migration, and where the UI sits on the map and report.
 
 > **If the timeline matters more:** run the 14 days now against the two surfaces
 > that exist (upload/delete, tier thresholds), log the other two as unevaluated,

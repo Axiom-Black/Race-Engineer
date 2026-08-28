@@ -16,6 +16,7 @@ import { C, font } from '../theme'
 import { useAuth } from '../lib/auth'
 import { Wordmark } from './ui'
 import BuildMarker from './BuildMarker'
+import UnitToggle from './UnitToggle'
 import TabBar from './TabBar'
 import SessionsTab from './SessionsTab'
 import ProgressionTab from './ProgressionTab'
@@ -63,6 +64,7 @@ export default function AppShell() {
           <BuildMarker />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <UnitToggle />
           <div
             title={user?.email}
             style={{

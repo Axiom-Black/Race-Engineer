@@ -17,7 +17,7 @@ const CHIP_H = 28
 const BADGE_R = 14
 const LEADER = 54
 
-export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: given, activeCorner }) {
+export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: given, activeCorner, noteMarks = [] }) {
   const withGps = gpsPoints(pts)
   // `aspect` as persisted by ingest.js is lonSpan / latSpan — WIDTH over
   // HEIGHT. Every consumer had been computing `height = width * aspect`, which
@@ -137,6 +137,29 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: give
             </text>
           </g>
         </g>
+        )
+      })}
+
+      {/* NOTES, RENDERED ON THE TRACE ITSELF — on the road, not on a badge.
+          The owner's instruction, and it falls out of the anchor design: a note
+          is anchored to a place on the track, so its mark belongs at that place
+          whether or not the detector calls it a corner on this lap. A corner
+          badge would have made the mark depend on our numbering, which is
+          exactly the dependency the distance anchor exists to remove.
+          `idx` is resolved by the caller from the note's `d` against the
+          distance axis, because the trace's 400 points are NOT evenly spaced
+          and `i / (n - 1)` has been wrong since 26 Aug. */}
+      {noteMarks.map((m) => {
+        const p = pts[Math.max(0, Math.min(m.idx ?? 0, pts.length - 1))]
+        if (!p || p.x == null) return null
+        const q = at(p)
+        return (
+          <g key={m.key} aria-hidden="true">
+            <circle cx={q.x} cy={q.y} r="9" fill={C.bg} stroke={C.pink} strokeWidth="2" />
+            <text x={q.x} y={q.y + 4} fill={C.pink} fontSize="11" fontWeight="800" textAnchor="middle" fontFamily={font.ui}>
+              {m.count > 1 ? m.count : '✎'}
+            </text>
+          </g>
         )
       })}
 
