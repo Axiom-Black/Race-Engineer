@@ -18,7 +18,7 @@
 | **Enforced by** | GitHub Actions CI — rings run as ordered, dependent jobs |
 | **Determinism** | Blocking gates never call the live Anthropic API (canned fixtures only). One live smoke test runs *outside* the gate. |
 | **Guiding source** | *Clean Code* T1–T9 heuristics · *Clean Agile* (acceptance-test-as-done) |
-| **Last updated** | 10 Aug 2026 — G1.1 formula gains the `scale` divisor; G1.3 rewritten after the temp-channel reclassification (the "unreliable" flag was our dropped-`scale` bug, not an LMU quirk); G1.5 tripwires pinned to resolved values. *(9 Aug: G1.5 added; Ring 3 → Supabase RLS; Ring 4 → golden-master parity.)* |
+| **Last updated** | 28 Aug 2026 — **Ring 3 gains G3.7–G3.11.** G3.7/G3.8 pin Track Notes' revise-within-a-session and accumulate-across-sessions rule; G3.9 asserts a note outlives the session that produced it (readable, marked orphaned); G3.10 that revision stays enforced once the FK is nulled — SQL NULLs compare as distinct, so a unique key over the nullable column would silently stop constraining anything; G3.11 that `applied_migrations()` exposes the migration ledger's version column and **not** the DDL in `schema_migrations.statements`. G3.1/G3.2 extended to notes in all four directions (read, forged insert, cross-tenant update and delete), because free text a driver writes about their own driving is a worse class of leak than a telemetry row. *(10 Aug: G1.1 formula gains the `scale` divisor; G1.3 rewritten after the temp-channel reclassification — the "unreliable" flag was our dropped-`scale` bug, not an LMU quirk; G1.5 tripwires pinned. 9 Aug: G1.5 added; Ring 3 → Supabase RLS; Ring 4 → golden-master parity.)* |
 
 ---
 
