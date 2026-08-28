@@ -549,6 +549,36 @@ describe('picking a note location on the map', () => {
     expect(screen.queryByText(/pinned at/i)).toBeNull()
   })
 
+  it('LETS YOU ACTUALLY SAVE a note on a pinned corner', async () => {
+    // Reported 28 Aug with a screenshot: T20 pinned, text typed, Save still
+    // disabled. The corner path had NEVER worked — `cornersFromPersisted` and
+    // `detectCorners` both convert distance fractions into INDICES and drop
+    // `dStart`/`d`/`dEnd`, so `anchorFromCorner` returned null for every real
+    // corner and `canSave` required a non-null anchor.
+    //
+    // Every existing notes test fed hand-written corners in the PERSISTED shape
+    // (which carries the fractions), never the RESOLVED shape the component is
+    // actually handed. A20, again: the test's world was one size different from
+    // the feature's.
+    render(<SessionReport sessionId="cur" sessions={[SESSION]} onBack={() => {}} />)
+    expect((await screen.findAllByText(/COTA/i)).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    await userEvent.click(screen.getByRole('button', { name: /Note corner 2/i }))
+
+    await userEvent.type(screen.getByRole('textbox'), 'Kerb takes it.')
+    const save = screen.getByRole('button', { name: 'Save note' })
+    expect(save).toBeEnabled()
+
+    await userEvent.click(save)
+    expect(saveNote).toHaveBeenCalledTimes(1)
+    const arg = saveNote.mock.calls[0][0]
+    expect(arg.cornerLabel).toBe('T2')
+    // A real span on the lap, not a null the button silently refused.
+    expect(Number.isFinite(arg.anchor.dStart)).toBe(true)
+    expect(Number.isFinite(arg.anchor.dEnd)).toBe(true)
+    expect(arg.anchor.dStart).toBeLessThanOrEqual(arg.anchor.dEnd)
+  })
+
   it('CLICKING A CORNER BADGE pins that turn, which was the one place picking failed', async () => {
     // Reported: "able to save a note at pinned locations everywhere but at the
     // actual labelled Turn". The badge hangs off the racing line on a leader,
