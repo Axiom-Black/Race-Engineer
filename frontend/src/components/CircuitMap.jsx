@@ -17,7 +17,7 @@ const CHIP_H = 28
 const BADGE_R = 14
 const LEADER = 54
 
-export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: given, activeCorner, noteMarks = [] }) {
+export default function CircuitMap({ pts, aspect, cursor, onScrub, onPick, corners: given, activeCorner, noteMarks = [] }) {
   const withGps = gpsPoints(pts)
   // `aspect` as persisted by ingest.js is lonSpan / latSpan — WIDTH over
   // HEIGHT. Every consumer had been computing `height = width * aspect`, which
@@ -66,13 +66,31 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: give
   const start = withGps[0]
   const top = topIdx == null ? null : pts[topIdx]
 
-  function handleMove(e) {
-    if (!onScrub) return
+  function indexAt(e) {
     const box = e.currentTarget.getBoundingClientRect()
     const x = ((e.clientX - box.left) / box.width) * geom.width
     const y = ((e.clientY - box.top) / box.height) * geom.height
-    const i = nearestPointIndex(pts, x, y, geom)
+    return nearestPointIndex(pts, x, y, geom)
+  }
+
+  function handleMove(e) {
+    if (!onScrub) return
+    const i = indexAt(e)
     if (i !== null) onScrub(i)
+  }
+
+  /**
+   * CLICK PICKS A PLACE TO NOTE. Hover is a preview and click is a commitment.
+   *
+   * Without this the only way to choose where a note goes was to leave the
+   * pointer on the right corner — and then move it to the note box, crossing
+   * the rest of the circuit on the way and re-pointing the note each time.
+   * Hovering cannot express "this one", because the pointer must always leave.
+   */
+  function handleClick(e) {
+    if (!onPick) return
+    const i = indexAt(e)
+    if (i !== null) onPick(i)
   }
 
   return (
@@ -81,6 +99,7 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: give
       role="img"
       aria-label="Track map"
       onMouseMove={handleMove}
+      onClick={handleClick}
       style={{ width: '100%', display: 'block', cursor: onScrub ? 'crosshair' : 'default' }}
     >
       {/* The circuit as a road: a dark edge with a lighter surface. Deliberately

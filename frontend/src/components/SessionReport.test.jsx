@@ -8,7 +8,7 @@
 // not. A 730-line component that no test so much as imports is a hole in the
 // gate, so this is deliberately a SMOKE test first and a feature test second:
 // merely importing and mounting it would have failed on that mistake.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -501,5 +501,51 @@ describe('the unit toggle reaches the whole session view', () => {
     await userEvent.click(screen.getByRole('button', { name: 'SI' }))
     expect(screen.getByText('5.42')).toBeInTheDocument()
     expect(screen.queryByText(/^mi$/)).toBeNull()
+  })
+})
+
+// ── Reported 28 Aug: "difficult to pick a location on the map" ──
+//
+// Hovering cannot express "this one", because the pointer must always leave the
+// corner to reach the note box — and on the way out it crossed the rest of the
+// circuit, re-pointing the note each time. Click is the commitment; hover stays
+// a preview.
+describe('picking a note location on the map', () => {
+  // jsdom reports a zero-size box for every element, so the map's click-to-
+  // trace-point projection divides by zero and resolves nothing. Give the SVG
+  // a real box for these two tests — without it the click is a no-op and the
+  // test would pass or fail for reasons unrelated to the behaviour.
+  let rect
+  beforeEach(() => {
+    getSessionTrace.mockResolvedValue(TRACE_WITH_CORNERS)
+    rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 1200, height: 2065, right: 1200, bottom: 2065, x: 0, y: 0,
+    })
+  })
+  afterEach(() => rect.mockRestore())
+
+  it('CLICKING THE MAP pins the note anchor, and hovering elsewhere no longer moves it', async () => {
+    render(<SessionReport sessionId="cur" sessions={[SESSION]} onBack={() => {}} />)
+    expect((await screen.findAllByText(/COTA/i)).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+
+    const map = screen.getByRole('img', { name: 'Track map' })
+    // jsdom gives every element a zero-size box, so the projected click always
+    // resolves to the same trace point. That is enough: the assertion is that a
+    // click PINS at all, and that a later hover cannot move it.
+    await userEvent.click(map)
+    expect(screen.getByText(/pinned at/i)).toBeInTheDocument()
+
+    await userEvent.hover(map)
+    expect(screen.getByText(/pinned at/i)).toBeInTheDocument()
+  })
+
+  it('offers a way to unpin, so a mis-click is not a dead end', async () => {
+    render(<SessionReport sessionId="cur" sessions={[SESSION]} onBack={() => {}} />)
+    expect((await screen.findAllByText(/COTA/i)).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    await userEvent.click(screen.getByRole('img', { name: 'Track map' }))
+    await userEvent.click(screen.getByRole('button', { name: /move to cursor/i }))
+    expect(screen.queryByText(/pinned at/i)).toBeNull()
   })
 })
