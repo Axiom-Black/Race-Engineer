@@ -28,6 +28,9 @@ const listTrackNotes = vi.fn(async () => [])
 const saveNote = vi.fn(async (row) => ({ id: 'new', ...row }))
 const deleteNote = vi.fn(async () => {})
 
+// UnitsProvider reads the signed-in driver so preferences are per account.
+vi.mock('../lib/auth', () => ({ useAuth: () => ({ user: { id: 'driver-1' } }) }))
+
 vi.mock('../lib/trackNotes', () => ({
   listTrackNotes: (...a) => listTrackNotes(...a),
   saveNote: (...a) => saveNote(...a),
@@ -35,6 +38,8 @@ vi.mock('../lib/trackNotes', () => ({
 }))
 
 const SessionReport = (await import('./SessionReport.jsx')).default
+const { UnitsProvider } = await import('../lib/unitsContext.jsx')
+const UnitToggle = (await import('./UnitToggle.jsx')).default
 
 const chans = (over = {}) => [
   { name: 'Ground Speed', unit: 'km/h', domain: 'Telemetry', sampleRateHz: 50, min: 0, max: 245.98, allZero: false, reliable: true, ...over.gs },
@@ -430,5 +435,71 @@ describe('the Performance comparison', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Performance' }))
     expect(screen.getByText('Peak brake temp')).toBeInTheDocument()
     expect(screen.getAllByText('not in this export').length).toBeGreaterThan(0)
+  })
+})
+
+// ── W0.2 regression: the toggle must reach the SESSION, not just Channels ──
+//
+// The first cut of W0.2 converted the Channels tab and nothing else, and 661
+// tests passed anyway — because every units test rendered ChannelsTab in
+// isolation. The claim was "every number on screen follows"; the coverage was
+// one tab. These render the WHOLE REPORT through the real provider and read the
+// numbers a driver actually looks at.
+describe('the unit toggle reaches the whole session view', () => {
+  beforeEach(() => { getSessionTrace.mockResolvedValue(TRACE) })
+
+  async function renderImperial() {
+    render(
+      <UnitsProvider>
+        <UnitToggle />
+        <SessionReport sessionId="cur" sessions={[SESSION]} onBack={() => {}} />
+      </UnitsProvider>,
+    )
+    expect((await screen.findAllByText(/COTA/i)).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'IMP' }))
+  }
+
+  it('converts the SUMMARY stat cells', async () => {
+    await renderImperial()
+    // 5.42 km = 3.37 mi. The circuit length was rendering as a pre-rounded
+    // STRING, so the atom had no number left to convert.
+    expect(screen.getByText('3.37')).toBeInTheDocument()
+    expect(screen.getByText(/^mi$/)).toBeInTheDocument()
+    expect(screen.queryByText(/^km$/)).toBeNull()
+  })
+
+  it('converts the PERFORMANCE card and its speed-band labels', async () => {
+    await renderImperial()
+    await userEvent.click(screen.getByRole('button', { name: 'Performance' }))
+    // Top speed 180 km/h = 111.8 mph.
+    expect(screen.getByText('111.8')).toBeInTheDocument()
+    // The band EDGES stay canonical km/h — only their labels convert, so the
+    // same lap reports the same share whichever system is selected.
+    expect(screen.getByText(/Low \(< 62\.1 mph\)/)).toBeInTheDocument()
+    expect(screen.queryByText(/100 km\/h/)).toBeNull()
+  })
+
+  it('converts the INSTRUMENTS gauges', async () => {
+    await renderImperial()
+    await userEvent.click(screen.getByRole('button', { name: 'Instruments' }))
+    expect(screen.getAllByText('MPH').length).toBeGreaterThan(0)
+    expect(screen.queryByText('KM/H')).toBeNull()
+    // RPM is dimensionless and must NOT change.
+    expect(screen.getAllByText('RPM').length).toBeGreaterThan(0)
+  })
+
+  it('converts the TRACK MAP panel readouts', async () => {
+    await renderImperial()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(screen.getAllByText('MPH').length).toBeGreaterThan(0)
+    // Distance along the lap is metres in SI, feet in imperial.
+    expect(screen.getAllByText(/^ft$/).length).toBeGreaterThan(0)
+  })
+
+  it('is REVERSIBLE across the whole report, not just the tab that was open', async () => {
+    await renderImperial()
+    await userEvent.click(screen.getByRole('button', { name: 'SI' }))
+    expect(screen.getByText('5.42')).toBeInTheDocument()
+    expect(screen.queryByText(/^mi$/)).toBeNull()
   })
 })

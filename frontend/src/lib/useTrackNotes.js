@@ -10,7 +10,7 @@
 // lib/trackNotes.js the queries. Components stay presentational so they can be
 // tested without a database.
 import { useCallback, useEffect, useState } from 'react'
-import { listTrackNotes, saveNote, deleteNote } from './trackNotes'
+import { listTrackNotes, saveNote, deleteNote, explainNotesError } from './trackNotes'
 
 export function useTrackNotes(venue) {
   const [notes, setNotes] = useState([])
@@ -30,7 +30,7 @@ export function useTrackNotes(venue) {
     } catch (e) {
       // Notes failing to load must not take the session report down with it —
       // the telemetry is still worth reading. Surfaced in the panel instead.
-      setError(e?.message || 'Could not load your notes for this track.')
+      setError(explainNotesError(e) || 'Could not load your notes for this track.')
     } finally {
       setLoading(false)
     }
@@ -49,7 +49,7 @@ export function useTrackNotes(venue) {
         if (live) setNotes(rows)
       })
       .catch((e) => {
-        if (live) setError(e?.message || 'Could not load your notes for this track.')
+        if (live) setError(explainNotesError(e) || 'Could not load your notes for this track.')
       })
       .finally(() => {
         if (live) setLoading(false)
@@ -76,7 +76,7 @@ export function useTrackNotes(venue) {
       })
       return row
     } catch (e) {
-      setError(e?.message || 'Could not save that note.')
+      setError(explainNotesError(e) || 'Could not save that note.')
       throw e
     } finally {
       setBusy(false)
@@ -90,7 +90,7 @@ export function useTrackNotes(venue) {
       await deleteNote(noteId)
       setNotes((prev) => prev.filter((n) => n.id !== noteId))
     } catch (e) {
-      setError(e?.message || 'Could not delete that note.')
+      setError(explainNotesError(e) || 'Could not delete that note.')
       throw e
     } finally {
       setBusy(false)
