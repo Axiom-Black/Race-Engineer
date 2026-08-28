@@ -310,5 +310,68 @@ begin
   raise notice 'notes ok — B''s update and delete both affected 0 rows';
 end $$;
 
+-- ════════════════════════════════════════════════════════════════
+-- G3.11 · applied_migrations() — the drift reader.
+--
+-- A SECURITY DEFINER function is the one place in this schema where code runs
+-- with more privilege than its caller, so it gets asserted rather than assumed.
+-- The value it must NOT leak is schema_migrations.statements, which contains
+-- the DDL of every table and policy in the project.
+-- ════════════════════════════════════════════════════════════════
+reset role;
+
+-- The shim does not create Supabase's own bookkeeping schema, so stand one up
+-- with the two columns the function reads. Named to match production exactly:
+-- a test that passes against a differently-shaped table proves nothing.
+create schema if not exists supabase_migrations;
+create table if not exists supabase_migrations.schema_migrations (
+  version text primary key,
+  statements text[],
+  name text
+);
+insert into supabase_migrations.schema_migrations (version, name, statements)
+values ('20260810035850', 'phase1', array['create table secret_shape(...)'])
+on conflict (version) do nothing;
+
+set role authenticated;
+
+do $$
+declare got text;
+begin
+  select version into got from public.applied_migrations() limit 1;
+  if got is distinct from '20260810035850' then
+    raise exception 'G3.11 FAIL: applied_migrations() returned % , expected the seeded version', got;
+  end if;
+  raise notice 'G3.11 ok — a signed-in driver can read the migration ledger';
+end $$;
+
+-- The disclosure this function exists to avoid. Granting SELECT on the table
+-- would have handed every browser the project's full DDL; the function returns
+-- one column, and the underlying table must stay unreachable.
+do $$
+begin
+  perform 1 from supabase_migrations.schema_migrations;
+  raise exception 'G3.11 FAIL: authenticated can read schema_migrations directly — statements (the DDL) are exposed';
+exception when insufficient_privilege then
+  raise notice 'G3.11 ok — the underlying table stays unreadable; only the version column is exposed';
+end $$;
+
+-- One column, and it is not the DDL one.
+do $$
+declare cols int;
+begin
+  select count(*) into cols
+    from information_schema.columns
+   where table_name = 'applied_migrations';
+  if exists (
+    select 1 from pg_proc p
+     where p.proname = 'applied_migrations'
+       and pg_get_function_result(p.oid) ilike '%statements%'
+  ) then
+    raise exception 'G3.11 FAIL: applied_migrations() returns the statements column';
+  end if;
+  raise notice 'G3.11 ok — the function does not return schema_migrations.statements';
+end $$;
+
 reset role;
 select 'ALL RING 3 ACCEPTANCE CHECKS PASSED' as result;

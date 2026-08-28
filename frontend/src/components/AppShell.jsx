@@ -16,6 +16,8 @@ import { C, font } from '../theme'
 import { useAuth } from '../lib/auth'
 import { Wordmark } from './ui'
 import BuildMarker from './BuildMarker'
+import SchemaDriftNotice from './SchemaDriftNotice'
+import { useSchemaDrift } from '../lib/useSchemaDrift'
 import UnitToggle from './UnitToggle'
 import TabBar from './TabBar'
 import SessionsTab from './SessionsTab'
@@ -46,6 +48,10 @@ export default function AppShell() {
 
   const initial = (user?.email?.[0] || '?').toUpperCase()
   const TabContent = TAB_CONTENT[tab]
+  // Checked once per signed-in session, above every tab — the failure it
+  // describes belongs to the database, not to whichever feature happens to
+  // touch the missing table first.
+  const drift = useSchemaDrift()
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, fontFamily: font.ui }}>
@@ -116,6 +122,7 @@ export default function AppShell() {
       <TabBar active={tab} onChange={setTab} />
 
       <main style={{ maxWidth: tab === 'engineer' ? 1180 : 960, margin: '0 auto', padding: '32px 24px' }}>
+        <SchemaDriftNotice result={drift} />
         <TabContent />
       </main>
     </div>
