@@ -7,6 +7,8 @@
 // unreliable channels stay flagged, never hidden (standing bar).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { C, font } from '../theme'
+import { useUnits } from '../lib/useUnits'
+import { strictNum } from '../lib/num'
 import { getSession, getSessionTrace } from '../lib/sessions'
 import { deltaTrace, fmtDelta } from '../lib/delta'
 import { formatSessionDateTime, formatSessionDate } from '../lib/sessionTime'
@@ -35,7 +37,6 @@ function fmtTime(s) {
   const m = Math.floor(s / 60)
   return `${m}:${(s % 60).toFixed(3).padStart(6, '0')}`
 }
-const n1 = (v) => (v == null ? '—' : v.toFixed(1))
 
 /**
  * A lap segment is only a lap time if it is bounded by two line crossings.
@@ -58,7 +59,6 @@ function lapLabel(l, session, laps) {
   if (k === 'timed') return fmtTime(displayLapTimeS(l, session, laps))
   return k === 'out' ? 'out-lap — not timed' : 'partial — no finish crossing'
 }
-const n2 = (v) => (v == null ? '—' : v.toFixed(2))
 
 // ── tiny UI atoms ─────────────────────────────────────────────────
 function Card({ children, style }) {
@@ -68,17 +68,49 @@ function Card({ children, style }) {
     </div>
   )
 }
-function StatCell({ label, value, unit, color = C.silver3 }) {
+/**
+ * A labelled measurement.
+ *
+ * CONVERTS AT THE DISPLAY EDGE. Every value reaching this component is
+ * canonical SI (see lib/units.js), so the conversion belongs here rather than
+ * at the call sites — putting it in the atom is what makes "every number on
+ * screen follows the toggle" structural instead of something to remember at
+ * each of the dozens of places a number is rendered. The first cut of W0.2
+ * converted only the Channels tab precisely because it was done per-screen.
+ *
+ * Pass a RAW SI NUMBER plus its `unit` and it converts; pass a pre-formatted
+ * string (a lap time, a count) and it is shown as given. `dp` overrides the
+ * unit's own display precision.
+ */
+function StatCell({ label, value, unit, dp, color = C.silver3 }) {
+  const { format } = useUnits()
   // A unit on an absent value ("— %") is a measurement label with nothing
   // behind it, and reads as a rendering fault rather than as missing data.
-  const missing = value === '—' || value === null || value === undefined
+  const raw = strictNum(value)
+  const convertible = unit && Number.isFinite(raw)
+  const shown = convertible ? format(raw, unit, dp) : null
+  const missing = shown ? shown.missing : (value === '—' || value === null || value === undefined)
   return (
     <div style={{ background: C.panel, padding: '13px 16px' }}>
       <div style={{ fontSize: 9, color: C.dim, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>{label}</div>
       <div style={{ fontSize: 19, fontWeight: 800, color: missing ? C.dim : color, fontFamily: font.mono }}>
-        {missing ? '—' : value}
-        {unit && !missing ? <span style={{ fontSize: 10, color: C.dim, fontWeight: 400 }}> {unit}</span> : null}
+        {missing ? '—' : (shown ? shown.text : value)}
+        {unit && !missing ? <span style={{ fontSize: 10, color: C.dim, fontWeight: 400 }}> {shown ? shown.unit : unit}</span> : null}
       </div>
+    </div>
+  )
+}
+
+/** One row of the car-performance card, converted at the display edge. */
+function PerfRow({ label, value, unit, dp, color }) {
+  const { format } = useUnits()
+  const shown = format(value, unit, dp)
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
+      <span style={{ fontSize: 12.5, color: C.silver2 }}>{label}</span>
+      <span style={{ fontFamily: font.mono, fontSize: 15, fontWeight: 800, color }}>
+        {shown.text}<span style={{ fontSize: 10, color: C.dim, fontWeight: 400 }}> {shown.unit}</span>
+      </span>
     </div>
   )
 }
@@ -169,7 +201,7 @@ function Plot({ pts, refPts, pick, color, label, unit, cursor, onScrub, height =
   const cVal = vals[cursor]
   return (
     <div style={{ marginBottom: 12 }}>
-      <PlotLabel label={label} value={cVal == null ? '—' : (Number.isInteger(cVal) ? cVal : cVal.toFixed(1))} unit={unit} color={color} />
+      <PlotLabel label={label} value={cVal == null ? '—' : cVal} unit={unit} color={color} />
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
@@ -254,12 +286,24 @@ function DeltaPlot({ delta, axis, cursor, onScrub, refLabel }) {
   )
 }
 
+/**
+ * The cursor readout above a trace.
+ *
+ * Converts the NUMBER and the LABEL, not the polyline. A unit change is an
+ * affine transform, so the plotted shape is identical either way and the y-axis
+ * carries no printed scale — redrawing the path would cost work and change
+ * nothing a reader can see. What must change is the figure the driver reads off
+ * the cursor, and the unit beside it.
+ */
 function PlotLabel({ label, value, unit, color }) {
+  const { format } = useUnits()
+  const raw = strictNum(value)
+  const shown = unit && Number.isFinite(raw) ? format(raw, unit) : null
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
       <span style={{ fontSize: 10, letterSpacing: 1, color: C.dim, textTransform: 'uppercase' }}>{label}</span>
       <span style={{ fontFamily: font.mono, fontSize: 12, color, fontWeight: 700 }}>
-        {value}<span style={{ color: C.dim, fontWeight: 400 }}> {unit}</span>
+        {shown ? shown.text : value}<span style={{ color: C.dim, fontWeight: 400 }}> {shown ? shown.unit : unit}</span>
       </span>
     </div>
   )
@@ -470,14 +514,14 @@ function SummaryTab({ session, laps, channels, flagged, metrics, traceLap, sessi
           )}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, background: C.line }}>
-          <StatCell label="Circuit length" value={session.length_km ? session.length_km.toFixed(2) : '—'} unit="km" />
+          <StatCell label="Circuit length" value={session.length_km ?? '—'} unit="km" dp={2} />
           <StatCell label="Laps this run" value={session.lap_count ?? laps.length} />
           <StatCell
             label={pb?.isCurrent ? 'Personal best (this run)' : 'Personal best'}
             value={pb ? fmtTime(pb.timeS) : '—'}
             color={C.pink}
           />
-          <StatCell label="Full throttle" value={metrics ? n1(metrics.fullThrottlePct) : '—'} unit="%" color={C.warn} />
+          <StatCell label="Full throttle" value={metrics ? metrics.fullThrottlePct : '—'} unit="%" dp={1} color={C.warn} />
         </div>
 
         {/* Compound + thermals on the left, the circuit's history on the right —
@@ -729,6 +773,8 @@ function ComparisonPanel({ session, sessions }) {
 }
 
 function PerformanceTab({ metrics, pts, lapValid, session, sessions }) {
+  // Read once here rather than in each band: hooks cannot run inside the map.
+  const { format: fmtUnit } = useUnits()
   // The comparison needs no trace at all — it reads persisted channel peaks —
   // so it must still render when the trace is missing. Previously this early
   // return blanked the whole tab.
@@ -744,13 +790,22 @@ function PerformanceTab({ metrics, pts, lapValid, session, sessions }) {
     )
   }
   // time-share in speed bands, computed from the lap's own points
+  // Band EDGES are canonical km/h and the test runs against the stored SI
+  // sample; only the label converts. Rounding the boundary itself to a tidy mph
+  // number would change which samples fall in which band, so the same lap would
+  // report different shares depending on a display preference — a preference
+  // must never move a measurement.
   const bands = [
-    { label: 'Low (< 100 km/h)', test: (s) => s < 100, col: C.pink },
-    { label: 'Medium (100–200)', test: (s) => s >= 100 && s < 200, col: C.warn },
-    { label: 'High (≥ 200 km/h)', test: (s) => s >= 200, col: C.blue },
+    { label: (f) => `Low (< ${f(100, 'km/h').text} ${f(100, 'km/h').unit})`, test: (s) => s < 100, col: C.pink },
+    { label: (f) => `Medium (${f(100, 'km/h').text}–${f(200, 'km/h').text})`, test: (s) => s >= 100 && s < 200, col: C.warn },
+    { label: (f) => `High (≥ ${f(200, 'km/h').text} ${f(200, 'km/h').unit})`, test: (s) => s >= 200, col: C.blue },
   ]
   const total = pts.length || 1
-  const bandPct = bands.map((b) => ({ ...b, pct: (pts.filter((p) => b.test(p.s ?? 0)).length / total) * 100 }))
+  const bandPct = bands.map((b) => ({
+    ...b,
+    label: b.label(fmtUnit),
+    pct: (pts.filter((p) => b.test(p.s ?? 0)).length / total) * 100,
+  }))
   return (
     <>
     {comparison}
@@ -758,16 +813,14 @@ function PerformanceTab({ metrics, pts, lapValid, session, sessions }) {
       <Card style={{ padding: '16px 18px' }}>
         <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, color: C.silver3, marginBottom: 12 }}>CAR PERFORMANCE — THIS LAP</div>
         {[
-          ['Top speed', n1(metrics.topSpeed), 'km/h', C.pink],
-          ['Peak lateral G', n2(metrics.peakLatG), 'G', C.silver3],
-          ['Peak longitudinal G', n2(metrics.peakLongG), 'G', C.silver3],
-          ['Max RPM', metrics.maxRpm ? Math.round(metrics.maxRpm) : '—', 'rpm', C.silver3],
-          ['Full-throttle share', n1(metrics.fullThrottlePct), '%', C.warn],
-        ].map(([label, value, unit, col]) => (
-          <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
-            <span style={{ fontSize: 12.5, color: C.silver2 }}>{label}</span>
-            <span style={{ fontFamily: font.mono, fontSize: 15, fontWeight: 800, color: col }}>{value}<span style={{ fontSize: 10, color: C.dim, fontWeight: 400 }}> {unit}</span></span>
-          </div>
+          // Raw SI values with their units — converted by PerfRow, not here.
+          ['Top speed', metrics.topSpeed, 'km/h', 1, C.pink],
+          ['Peak lateral G', metrics.peakLatG, 'G', 2, C.silver3],
+          ['Peak longitudinal G', metrics.peakLongG, 'G', 2, C.silver3],
+          ['Max RPM', metrics.maxRpm || null, 'rpm', 0, C.silver3],
+          ['Full-throttle share', metrics.fullThrottlePct, '%', 1, C.warn],
+        ].map(([label, value, unit, dp, col]) => (
+          <PerfRow key={label} label={label} value={value} unit={unit} dp={dp} color={col} />
         ))}
       </Card>
       <Card style={{ padding: '16px 18px' }}>

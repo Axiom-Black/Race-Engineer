@@ -14,6 +14,34 @@
 import { supabase } from './supabase'
 import { buildNoteRow, trackKey } from './notes'
 
+/**
+ * Turn "Could not find the table 'public.track_notes' in the schema cache" into
+ * something a reader can act on.
+ *
+ * PostgREST reports an unapplied migration as a *schema cache* miss, which
+ * reads like a caching fault and is not one — the table simply is not in the
+ * database yet. Migrations in this repo are applied to CI's ephemeral Postgres
+ * by Ring 3 and to the live project by hand, so the two can be out of step and
+ * the gates will be green while the app is broken. That gap cost a confusing
+ * error on a real screen, so the message now names the actual cause.
+ *
+ * Everything else passes through verbatim: guessing at other failures would
+ * trade a precise message for a vague one.
+ */
+export function explainNotesError(error) {
+  if (!error) return null
+  const code = error.code ?? ''
+  const msg = error.message ?? String(error)
+  const missingTable =
+    code === 'PGRST205' ||
+    (/schema cache/i.test(msg) && /track_notes/i.test(msg)) ||
+    /relation .*track_notes.* does not exist/i.test(msg)
+  return missingTable
+    ? 'Track Notes needs a database migration that has not been applied to this project yet ' +
+      '(supabase/migrations/20260826000000_w03_track_notes.sql). Your telemetry is unaffected.'
+    : msg
+}
+
 const COLUMNS =
   'id, created_at, updated_at, track_key, track_label, anchor_key, d_start, d_end, ' +
   'corner_label, body, source_session_id, session_key, session_recorded_at, ' +
