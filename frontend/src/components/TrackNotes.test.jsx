@@ -215,3 +215,119 @@ describe('the notes panel', () => {
     expect(screen.getByLabelText(/NOTE THIS PLACE — T1/)).toBeInTheDocument()
   })
 })
+
+// ── Reported 28 Aug: "cannot save the note", and the location changes as the
+// ── mouse travels from the map to the note box.
+//
+// ONE ROOT CAUSE, TWO SYMPTOMS. The anchor followed the LIVE hover cursor, and
+// the editor reset its text whenever the anchor changed. So moving the pointer
+// off the corner you wanted — which you must do to reach the textarea — both
+// re-pointed the note somewhere else and wiped whatever you had typed. The save
+// button then had nothing to save, which reads as "cannot save".
+describe('picking a place to note', () => {
+  const render3 = (props) =>
+    render(
+      <TrackNotes
+        notes={[]}
+        session={SESSION}
+        corners={CORNERS}
+        activeCorner={CORNERS[1]}
+        cursorD={0.128}
+        lengthKm={5.513}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        {...props}
+      />,
+    )
+
+  it('DOES NOT WIPE WHAT YOU TYPED when the cursor moves', async () => {
+    // The bug that made saving impossible. Typing is unsaved work; a hover
+    // event is not a reason to destroy it.
+    const view = render3()
+    await userEvent.type(screen.getByRole('textbox'), 'Brake at the 100 board.')
+    view.rerender(
+      <TrackNotes notes={[]} session={SESSION} corners={CORNERS}
+        activeCorner={CORNERS[0]} cursorD={0.03} lengthKm={5.513}
+        onSave={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(screen.getByRole('textbox')).toHaveValue('Brake at the 100 board.')
+  })
+
+  it('SURVIVES THE NOTES LOADING while you type', async () => {
+    // The pin freezes the PLACE, but `existing` can still change underneath —
+    // the master list arrives from the server a moment after the panel mounts,
+    // or a save elsewhere refreshes it. Without the dirty guard that arrival
+    // overwrites the box mid-sentence. Found by deliberately removing the guard
+    // and noticing the pin test still passed: the guard was masked, not proven.
+    const view = render3({ notes: [] })
+    await userEvent.type(screen.getByRole('textbox'), 'Half a thought')
+    view.rerender(
+      <TrackNotes
+        notes={[note({ id: 'arrived', session_key: 's-current', body: 'From the server.' })]}
+        session={SESSION} corners={CORNERS} activeCorner={CORNERS[1]} cursorD={0.128}
+        lengthKm={5.513} onSave={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(screen.getByRole('textbox')).toHaveValue('Half a thought')
+  })
+
+  it('PINS THE PLACE once you start writing, so the note lands where you meant', async () => {
+    const onSave = vi.fn()
+    const view = render3({ onSave })
+    await userEvent.type(screen.getByRole('textbox'), 'Kerb takes it.')
+    // The pointer now travels across the map on its way to the Save button.
+    view.rerender(
+      <TrackNotes notes={[]} session={SESSION} corners={CORNERS}
+        activeCorner={CORNERS[0]} cursorD={0.03} lengthKm={5.513}
+        onSave={onSave} onDelete={vi.fn()} />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save note' }))
+    // T5's span, not T1's — the corner that was under the cursor when writing
+    // began, which is the one the driver was looking at.
+    expect(onSave.mock.calls[0][0].anchor).toEqual({ dStart: 0.12, dEnd: 0.135 })
+    expect(onSave.mock.calls[0][0].cornerLabel).toBe('T5')
+  })
+
+  it('SAYS which place is pinned, and offers a way to move it', async () => {
+    render3()
+    await userEvent.type(screen.getByRole('textbox'), 'x')
+    expect(screen.getByText(/pinned at T5/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /move to cursor/i })).toBeInTheDocument()
+  })
+
+  it('follows the cursor again after the pin is released', async () => {
+    const view = render3()
+    await userEvent.type(screen.getByRole('textbox'), 'x')
+    await userEvent.click(screen.getByRole('button', { name: /move to cursor/i }))
+    view.rerender(
+      <TrackNotes notes={[]} session={SESSION} corners={CORNERS}
+        activeCorner={CORNERS[0]} cursorD={0.03} lengthKm={5.513}
+        onSave={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(screen.getByLabelText(/NOTE THIS PLACE — T1/)).toBeInTheDocument()
+  })
+
+  it('releases the pin after a successful save, ready for the next corner', async () => {
+    const onSave = vi.fn().mockResolvedValue({})
+    const view = render3({ onSave })
+    await userEvent.type(screen.getByRole('textbox'), 'done')
+    await userEvent.click(screen.getByRole('button', { name: 'Save note' }))
+    view.rerender(
+      <TrackNotes notes={[]} session={SESSION} corners={CORNERS}
+        activeCorner={CORNERS[0]} cursorD={0.03} lengthKm={5.513}
+        onSave={onSave} onDelete={vi.fn()} />,
+    )
+    expect(await screen.findByLabelText(/NOTE THIS PLACE — T1/)).toBeInTheDocument()
+  })
+
+  it('still swaps in another corner’s existing note when nothing is being typed', async () => {
+    // The pin must not defeat the original behaviour: with an EMPTY box there
+    // is no unsaved work to protect, so the panel should keep following.
+    const view = render3()
+    view.rerender(
+      <TrackNotes notes={[]} session={SESSION} corners={CORNERS}
+        activeCorner={CORNERS[0]} cursorD={0.03} lengthKm={5.513}
+        onSave={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(screen.getByLabelText(/NOTE THIS PLACE — T1/)).toBeInTheDocument()
+  })
+})

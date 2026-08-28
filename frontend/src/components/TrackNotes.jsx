@@ -83,17 +83,39 @@ function NoteBody({ note, onDelete, busy }) {
  * they already said and invite them to write it twice. Across sessions it is
  * blank, because that is a new observation.
  */
-function Editor({ anchor, anchorName, existing, onSave, busy, disabled }) {
+function Editor({ anchor, anchorName, existing, onSave, onDirty, onReleasePin, pinned, busy, disabled }) {
   const [text, setText] = useState('')
   const [saved, setSaved] = useState(false)
+  // Has the DRIVER typed since the anchor last moved?
+  //
+  // Explicit state rather than comparing text to `existing`, because `existing`
+  // changes in the same render as the anchor — by the time the effect runs, the
+  // note it would have compared against is already the new corner's. Only the
+  // user's own editing counts as work to protect; text that merely arrived from
+  // a stored note is safe to swap out.
+  const [dirty, setDirty] = useState(false)
 
-  // Follow the cursor: moving to another corner swaps in that corner's own
-  // draft-or-existing text rather than carrying the last corner's words over.
+  // Follow the cursor ONLY while the box is empty.
+  //
+  // This effect used to run on every anchor change, full stop — and since the
+  // anchor tracked the live hover cursor, simply moving the pointer off the
+  // corner (which you must do to reach this box) wiped whatever had been typed.
+  // The reported symptom was "cannot save the note": there was nothing left in
+  // the box by the time the button was reached.
+  //
+  // Unsaved text is work. A hover event is not a reason to destroy it, so the
+  // swap-in only happens when there is nothing to lose.
   useEffect(() => {
+    if (dirty) return
     setText(existing?.body ?? '')
     setSaved(false)
+    // `dirty` is read but deliberately NOT a dependency: this must react to the
+    // anchor moving, not to every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing?.id, existing?.body, anchorName])
 
+  // Revising back to the stored wording is a no-op, so Save stays disabled —
+  // but any text at all is savable when there is no stored note yet.
   const canSave = !!anchor && text.trim().length > 0 && !busy && !disabled
 
   return (
@@ -102,7 +124,7 @@ function Editor({ anchor, anchorName, existing, onSave, busy, disabled }) {
         e.preventDefault()
         if (!canSave) return
         Promise.resolve(onSave(text)).then(
-          () => setSaved(true),
+          () => { setSaved(true); setText(''); setDirty(false); onReleasePin?.() },
           () => setSaved(false),
         )
       }}
@@ -116,7 +138,15 @@ function Editor({ anchor, anchorName, existing, onSave, busy, disabled }) {
       <textarea
         id="track-note-body"
         value={text}
-        onChange={(e) => { setText(e.target.value); setSaved(false) }}
+        onChange={(e) => {
+          // Pin on the FIRST keystroke. Writing is the moment the driver has
+          // committed to a place, and it is the last moment before the pointer
+          // has to leave the map to reach the Save button.
+          if (!dirty && e.target.value.trim()) onDirty?.()
+          setDirty(true)
+          setText(e.target.value)
+          setSaved(false)
+        }}
         maxLength={MAX_NOTE_CHARS}
         rows={3}
         disabled={disabled}
@@ -129,6 +159,20 @@ function Editor({ anchor, anchorName, existing, onSave, busy, disabled }) {
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
         <Button type="submit" disabled={!canSave}>{existing ? 'Revise' : 'Save note'}</Button>
+        {/* A pin the driver cannot see is a pin they cannot trust — and one they
+            cannot move is a trap, since the first keystroke sets it. */}
+        {pinned && (
+          <>
+            <span style={{ fontSize: 10, color: C.pink }}>📌 pinned at {anchorName}</span>
+            <button
+              type="button"
+              onClick={onReleasePin}
+              style={{ background: 'none', border: 'none', color: C.dim, fontSize: 10, textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+            >
+              move to cursor
+            </button>
+          </>
+        )}
         {saved && <span style={{ fontSize: 10, color: C.pink }}>saved to your {anchorName} notes</span>}
         {/* Said plainly, because it is the surprising half of the rule and the
             driver is the one who has to predict it. */}
@@ -150,23 +194,40 @@ export default function TrackNotes({
   loading,
   error,
   busy,
+  picked,
+  onClearPick,
   onSave,
   onDelete,
 }) {
   const [showAll, setShowAll] = useState(false)
+  // The PINNED place, if any. Null means "follow the cursor".
+  //
+  // Why a pin exists at all: the map scrubs on mousemove, so the anchor tracked
+  // whatever the pointer last passed over — and the pointer has to cross the
+  // map to reach this panel. Choosing a corner and then reaching for the
+  // keyboard re-pointed the note somewhere else, every time. Hovering is a
+  // preview; writing is a commitment, so the first keystroke freezes the place.
+  const [pin, setPin] = useState(null)
   const { attached, loose } = attachToCorners(notes, corners)
 
-  // The anchor being written to: the corner the cursor is inside, or — on a
-  // straight, which is half of what the owner asked to be notable — the exact
-  // distance the cursor is at.
-  const anchor = activeCorner
-    ? anchorFromCorner(activeCorner)
-    : anchorFromDistance(cursorD)
-  const anchorName = activeCorner ? `T${activeCorner.n}` : anchorLabel({ d_start: cursorD, d_end: cursorD }, lengthKm)
+  // The place the cursor is over right now — the preview.
+  const live = {
+    corner: activeCorner ?? null,
+    anchor: activeCorner ? anchorFromCorner(activeCorner) : anchorFromDistance(cursorD),
+    name: activeCorner
+      ? `T${activeCorner.n}`
+      : anchorLabel({ d_start: cursorD, d_end: cursorD }, lengthKm),
+  }
+  // A click on the map is an EXPLICIT pick and outranks a pin set by typing —
+  // clicking somewhere else is unambiguously "no, that place". The parent has
+  // already resolved the click, so `live` is the picked place while it holds.
+  const target = picked ? live : (pin ?? live)
+  const { anchor, name: anchorName } = target
+  const targetCorner = target.corner
+  const isPinned = picked || !!pin
+  const releasePin = () => { setPin(null); onClearPick?.() }
 
-  const stack = activeCorner
-    ? attached.get(activeCorner.n)
-    : null
+  const stack = targetCorner ? attached.get(targetCorner.n) : null
   const here = stack ? pickForSession(stack, session) : null
   // This session's own note for the anchor, which is what "revise" edits.
   const mine = (stack?.notes ?? []).find((n) => n.session_key === String(session?.id ?? ''))
@@ -199,12 +260,17 @@ export default function TrackNotes({
           anchorName={anchorName}
           existing={mine}
           busy={busy}
+          pinned={isPinned}
+          // Freeze the place the pointer was over when writing began, not
+          // wherever it has drifted to by the time Save is clicked.
+          onDirty={() => setPin(live)}
+          onReleasePin={releasePin}
           disabled={!session?.id || !session?.venue}
           onSave={(text) =>
             onSave?.({
               anchor,
               body: text,
-              cornerLabel: activeCorner ? `T${activeCorner.n}` : null,
+              cornerLabel: targetCorner ? `T${targetCorner.n}` : null,
             })
           }
         />

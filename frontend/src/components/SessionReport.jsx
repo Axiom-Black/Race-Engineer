@@ -1012,6 +1012,8 @@ function TrackMapTab({ pts, persistedCorners, aspect, cursor, setCursor, lapSeco
   const corners = useMemo(() => resolveCorners(persistedCorners, pts), [persistedCorners, pts])
   const active = cornerAt(corners, cursor)
   const axis = useMemo(() => distanceAxis(pts), [pts])
+  // Where a click on the map put the note anchor. Null = follow the cursor.
+  const [pickedIdx, setPickedIdx] = useState(null)
   // One mark per stack, placed by resolving the note's distance against the
   // distance axis. NOT `i / (n - 1)`: the trace's 400 points have been spent by
   // importance since 26 Aug, so `d` is the only position a point has.
@@ -1052,14 +1054,17 @@ function TrackMapTab({ pts, persistedCorners, aspect, cursor, setCursor, lapSeco
         aspect={aspect}
         cursor={cursor}
         onScrub={(i) => { replay.setPlaying(false); replay.seek(i) }}
+        onPick={(i) => { replay.setPlaying(false); setPickedIdx(i) }}
       />
       <MapInstruments point={pts[Math.min(cursor, pts.length - 1)]} corner={active} lengthKm={lengthKm} />
       <TrackNotes
         notes={notes}
         session={session}
         corners={corners}
-        activeCorner={active}
-        cursorD={axis[Math.min(cursor, axis.length - 1)]}
+        activeCorner={pickedIdx == null ? active : cornerAt(corners, pickedIdx)}
+        cursorD={axis[Math.min(pickedIdx ?? cursor, axis.length - 1)]}
+        picked={pickedIdx != null}
+        onClearPick={() => setPickedIdx(null)}
         lengthKm={lengthKm}
         loading={notesLoading}
         error={notesError}
