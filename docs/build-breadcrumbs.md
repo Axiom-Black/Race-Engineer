@@ -423,12 +423,53 @@ Two specific smells this surfaces, both worth checking by name:
 
 ---
 
+### A21 · Re-check a capability you believe you lack — the belief constrains silently
+
+Twice in one day I told the owner this environment had "the Postgres client
+only, no server", and used that to justify shipping SQL unverified. It was
+never true. `psql` was on `PATH` and `postgres`, `initdb` and `pg_ctl` were
+sitting in `/usr/lib/postgresql/16/bin` the whole time. One bad `which` check,
+repeated as fact, then quoted as a constraint.
+
+The cost was not the wrong sentence. It was:
+
+- A migration merged with its SQL unexercised (PR #51), justified in the commit
+  message by the absent tooling.
+- A second migration that went red in CI on a defect reproducible locally in
+  about sixty seconds — and whose root cause (a `language sql` body is validated
+  at CREATE time) would have been caught the moment it ran anywhere real.
+
+**A missing tool announces itself; a wrongly-assumed-missing tool does not.**
+When a tool is genuinely absent you hit an error, and the error corrects you. A
+false belief that you lack something produces no error at all — it quietly
+removes an option from consideration, and every downstream decision looks
+reasonable given the premise. The belief is never re-examined because nothing
+ever contradicts it.
+
+So: **when a capability's absence is about to change what you ship — skip a
+verification, pick a weaker design, hand work back to the user — re-check it
+right then.** Not "I recall it isn't available", but run the check again. The
+moment a limitation starts doing work in an argument is the moment it needs
+evidence. And prefer a check that would fail loudly: `ls` the expected path
+rather than `which`, try the thing rather than asking about it.
+
+The generalisation beyond tooling: any premise load-bearing enough to justify
+lowering your standard deserves one fresh look before it is allowed to. That is
+the same instinct as A18 (measure the tolerance rather than trusting the
+answer), pointed at your own assumptions rather than at the code's.
+*Codex I.2, IV.3.*
+
+---
+
+---
+
 ## Part B — Session trail (newest first)
 
 Each entry: date · what shipped · the method insight worth carrying forward.
 
 | Date | Shipped | Method insight |
 | --- | --- | --- |
+| 28 Aug 2026 | Migration drift merged (#55); Ring 3 red then green; the "no local Postgres" claim found to be false | **Re-check a capability you believe you lack — the belief constrains silently.** Full pattern in **A21**. A missing tool announces itself with an error; a wrongly-assumed-missing one produces no error at all, quietly removes an option, and is never re-examined because nothing contradicts it. It cost one migration shipped unverified and one CI failure reproducible locally in a minute. **The second lesson is about fixing the right layer.** Ring 3 went red because a `language sql` body is validated at CREATE time, so the function failed on a schema the test file created *after* the migrations. Correcting the ordering alone would have gone green and left the real defect in place: the same migration would have failed against a production project that had never run `supabase db push`, because Supabase creates the ledger on first push. **When CI catches something, ask whether the gate found the defect or merely one instance of it** — the fix that only satisfies the gate is the one that ships the bug. Here the honest fix changed the function's language and made an absent ledger raise, which the client maps to UNKNOWN rather than to "everything is missing". |
 | 28 Aug 2026 | Migration-drift detection (option C): the bundle carries its migration list and reports what the database is missing | **When a gate constructs its own copy of the thing it validates, name the real artefact it is not looking at.** Ring 3 applies every migration to a throwaway Postgres and asserts against it — which proves the files are self-consistent and is structurally incapable of noticing that production never received them. That is not a bug in the gate; it is the gate's shape. The general habit: for each gate, ask *what does this build for itself, and what does it therefore never see?* **Second, on choosing the weaker option on purpose.** The complete fix was `supabase db push` in CI; it was rejected because it buys automation with the first production schema-write credential in the repo, inherited by every workflow run. Detection costs no secret, generalises to every future migration, and fails in the right direction — you learn before hitting the feature instead of after. **A capability you decline is worth logging with its price, so the next person can re-decide rather than re-derive.** Also rejected outright, and worth naming: a release-checklist item, which is *the appearance of a control without the substance* — the failure had already happened to someone who had written the instruction down. **Third, the reusable UI rule: a diagnostic must have an "I don't know" state, and it must render as silence rather than as reassurance.** An UNKNOWN that displays as OK is the exact false comfort the green gates gave. And a diagnostic that sits above the whole app must be allow-listed into rendering, never excluded from it — an unrecognised status reaching `result.missing.map` crashed the page, which is a worse outcome than the drift it was reporting. |
 | 28 Aug 2026 | Week 0 merged (#51/#52/#53); three post-merge defects fixed; `track_notes` applied to production, RLS verified | **Ask what the smallest world is in which your test passes.** Full pattern in **A20** — three defects shipped behind 661 green tests, each test correct and each pointed at a world one size smaller than the claim it was taken to support. **The second lesson is about deployment, and it is the more expensive one: CI proving a migration is not the same as the migration being applied.** Ring 3 builds its own Postgres from the same files it is testing, so it is structurally incapable of noticing that production never got them — the gates were green while the feature was broken for the only user. Anywhere a gate constructs its own copy of the thing it validates, ask what real artefact it is *not* looking at. **Third, smaller but reusable: a helper that cannot say "I don't know" will answer anything.** `nearestPointIndex` has no distance threshold, so a click on a label 54 px off the racing line returned a confident wrong point — and the corner a driver was pointing at became the one corner they could not select. Before wiring a lookup into a click handler, ask what it does at the edge of its competence; "always returns the nearest" is a different contract from "returns the thing you clicked". **Also worth carrying: my first fix for the notes bug was wrong, and a PRE-EXISTING test caught it.** I had defined "unsaved work" as "the box has text", which froze boxes merely prefilled from a saved note. The regression suite earning its keep against the person who wrote it is the argument for keeping old assertions when they seem to be in the way. |
 | 26 Aug 2026 | Week 0 closed — W0.1 build marker, W0.2 imperial ↔ SI, W0.3 Track Notes (schema + RLS + logic + UI); LMU roster inventory filled | **Break the code and watch the test go red, or you do not know whether you wrote a test.** Full pattern in **A19** — two carefully written, well-named probes passed a deliberately sabotaged implementation, and their text gave no hint of it. **The design lesson of the session is a storage one, and it appeared three times in three different guises:** units convert only at the *display edge* because converting at ingest makes two drivers' archives numerically incompatible; notes anchor to a *distance span* rather than a corner number because numbering is ours and moved twice in three days; and a note's provenance is a *copy* of the session's identity rather than a join, because a join is unreadable in exactly the case the design exists for. Same rule each time: **store the invariant, derive the convenience.** The tell for which is which is to ask what happens when the other thing changes — the driver's preference, the detector's output, the session's existence — and whichever survives that is what belongs on disk. **A constraint worth carrying:** `session_key` is stored as text *beside* the nullable foreign key it duplicates, which looks redundant until you notice SQL NULLs compare as **distinct** — a unique key over a nullable column silently stops constraining anything the moment that column nulls. That failure mode is invisible in review and invisible in a passing suite; the only thing that catches it is an acceptance check that deletes the parent row and *then* tries the duplicate. **And on blockers that turn out to be smaller than they look:** the track roster had no reachable source for its numeric columns, which read as a hard blocker until noticing that length, longest straight and corner count are all *measured at upload* — so the table fills itself as the work proceeds and only the one genuinely external figure (official corner count) needs anybody. Before escalating a missing input, check how much of it your own pipeline already produces. |
