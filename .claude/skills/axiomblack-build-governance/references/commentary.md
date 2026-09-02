@@ -78,13 +78,45 @@ is surfaced and cleared, never quietly bypassed. Recurring flows are frozen into
 work — the reason the Working Plan is written to be copied to the next tool verbatim, the reason the
 testing gates are a fixed ring structure. Standard work is how flow survives beyond one project.
 
+### The 80/20 Prioritization Matrix — the org's standard work for sequencing
+
+Two axes, scored per candidate: **potential impact** (how much of the value in Principle 1 this
+delivers) and **feasibility** (how ready we are to do it now — evidence in hand, dependencies
+resolved, unknowns closed). Four quadrants, each with a different action:
+
+| | **Low feasibility** | **High feasibility** |
+| --- | --- | --- |
+| **High impact** | **Start planning now** — the item is right, the readiness is not. Name the specific blocker and work it. | **Do it now!** — this is what active work is for. |
+| **Low impact** | **Review only if you have time** — parked. | **Quick wins** — filler for gaps, never a queue-jumper. |
+
+The matrix is deliberately about *readiness*, not *difficulty*. That distinction is what makes the
+low-feasibility column actionable: feasibility is a blocker with a name, and Create Flow already
+requires blockers to be surfaced and cleared rather than worked around. "Start planning now" is the
+instruction to clear it — the quadrant is a queue for unblocking work, not a polite parking lot.
+
+Two failure modes it exists to catch:
+
+- **Quick wins crowding out the real work.** Easy items get done because they are easy, and the
+  high-impact item that needed a decision or a measurement never starts. Impact outranks feasibility;
+  a quick win fills a gap while a hard item unblocks, it does not go ahead of it.
+- **Un-scored work reaching the top of the queue.** Rework is the tell. When a build produces a run
+  of fixes to things already called done, the ordering — not the engineering — is what failed: the
+  item was started before it was feasible.
+
 **Anti-patterns it forbids.**
 - Silently working around a blocker instead of surfacing and clearing it (the block stays for the next person).
 - Reinventing a process each time because the smooth version was never captured as standard work.
 - Big batches that sit waiting, instead of small units that flow.
+- Working *Quick wins* ahead of *Do it now!* because they are easier to start.
+- Filing a high-impact item under low feasibility and leaving it there — that quadrant is
+  "start planning now", not "someday". An unnamed blocker is a parked blocker.
+- Starting a high-impact item whose feasibility was never scored, and calling the resulting rework
+  a quality problem when it was a sequencing one.
 
 **How adherence is checked.** Blockers are visible and actively cleared, not parked; recurring work
-has a captured standard (template/checklist/gate) rather than living in one person's head.
+has a captured standard (template/checklist/gate) rather than living in one person's head; and every
+item in active work can name its matrix quadrant, with nothing in *Quick wins* running while a
+*Do it now!* item waits.
 
 ---
 
@@ -104,14 +136,23 @@ of decisions that present reality will invalidate. This is the discipline behind
 high-margin, no-inference product first and activating the expensive agent tier only once a paying
 base pulls for it.
 
+**Pull decides whether; the matrix decides order.** Demand is a gate, not a ranking — several items
+can be genuinely pulled at once, and then pull alone is silent on which moves first. That is where the
+80/20 Prioritization Matrix (Principle 3) takes over: score the pulled set on impact × feasibility and
+work the *Do it now!* quadrant. The two are not alternatives and neither substitutes for the other —
+a high-impact, high-feasibility item with no demand behind it is still overproduction, and a pulled
+item is still mis-sequenced if it was started before it was feasible.
+
 **Anti-patterns it forbids.**
 - Building a feature, abstraction, or service because it "will probably be needed."
 - Detailed planning of far-future phases whose inputs do not yet exist.
 - Speculative generality — architecture built for demand that has not arrived.
+- Treating a high matrix score as a pull signal. Impact and feasibility rank what demand has already
+  admitted; they cannot admit it.
 
 **How adherence is checked.** Every item in active work can point to the present demand that pulled
-it. Anything built on "will be needed" is challenged and, absent a real pull signal, returned to the
-parked backlog.
+it, *and* to the quadrant that put it ahead of the others. Anything built on "will be needed" is
+challenged and, absent a real pull signal, returned to the parked backlog.
 
 ---
 
