@@ -169,10 +169,18 @@ describe('the notes panel', () => {
     // The note is anchored to a place on the road; the road did not move, only
     // our numbering of it did. A corner-number anchor would have lost this note
     // entirely — this assertion is the design's whole justification.
-    renderPanel({ notes: [note({ id: 'loose', d_start: 0.62, d_end: 0.63, body: 'Bump on entry.' })] })
-    expect(screen.getByText(/ON THE TRACE — no corner detected here on this lap/)).toBeInTheDocument()
+    //
+    // SPEC 001 CHANGED *WHEN*, NOT WHETHER. This test used to render with the
+    // cursor at T5 and still find the note, because trace notes were rendered
+    // unconditionally — which is the defect the owner reported from the other
+    // side ("the trace notes are always shown"). The claim above survives
+    // intact; the cursor now has to be at the place, exactly as it does for a
+    // corner note.
+    const loose = note({ id: 'loose', d_start: 0.62, d_end: 0.63, body: 'Bump on entry.' })
+    renderPanel({ notes: [loose], activeCorner: null, cursorD: 0.625, liveD: 0.625 })
     expect(screen.getByText('Bump on entry.')).toBeInTheDocument()
     expect(screen.getByText('3.45 km')).toBeInTheDocument()
+    expect(screen.getByText(/no corner detected here on this lap/)).toBeInTheDocument()
   })
 
   it('lets a driver delete their own note — the only way a note ever goes away', async () => {
@@ -329,5 +337,103 @@ describe('picking a place to note', () => {
         onSave={vi.fn()} onDelete={vi.fn()} />,
     )
     expect(screen.getByLabelText(/NOTE THIS PLACE — T1/)).toBeInTheDocument()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC 001 — a note shows up where the car is, and the two kinds of note behave
+// identically. docs/specs/001-note-visibility/spec.md
+//
+// The reported defect: corner notes appeared only while the cursor sat inside a
+// detected corner, while trace notes were rendered unconditionally. Not one rule
+// tuned two ways — two rules of different KINDS, which is why these assertions
+// are written over both kinds together wherever they can be.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('which notes are visible', () => {
+  const IN_CORNER = note({ id: 'c', d_start: 0.125, d_end: 0.130, body: 'Corner note.' })
+  const ON_STRAIGHT = note({ id: 's', d_start: 0.62, d_end: 0.62, body: 'Straight note.' })
+
+  it('shows a corner note when the cursor hovers it', () => {
+    renderPanel({ notes: [IN_CORNER] })
+    expect(screen.getByText('Corner note.')).toBeInTheDocument()
+  })
+
+  it('SHOWS A CORNER NOTE AS THE TRACKER PASSES, with no corner object at all', () => {
+    // Replay advances DISTANCE. Gating on `activeCorner` meant a note was
+    // invisible whenever the cursor's position did not resolve to a detected
+    // corner — including on any lap the detector reads differently, which is
+    // the case the whole distance anchor exists to survive.
+    renderPanel({ notes: [IN_CORNER], activeCorner: null, cursorD: 0.128, liveD: 0.128 })
+    expect(screen.getByText('Corner note.')).toBeInTheDocument()
+  })
+
+  it('shows a trace note when the cursor is at it', () => {
+    renderPanel({ notes: [ON_STRAIGHT], activeCorner: null, cursorD: 0.62, liveD: 0.62 })
+    expect(screen.getByText('Straight note.')).toBeInTheDocument()
+  })
+
+  it('DOES NOT SHOW A TRACE NOTE FROM THE OTHER SIDE OF THE LAP', () => {
+    // The reported half: "the trace notes are always shown".
+    renderPanel({ notes: [ON_STRAIGHT], cursorD: 0.128, liveD: 0.128 })
+    expect(screen.queryByText('Straight note.')).not.toBeInTheDocument()
+  })
+
+  it('BOTH KINDS BEHAVE IDENTICALLY over a sweep of the lap', () => {
+    // One assertion over both, deliberately: two separate tests would let the
+    // two rules drift apart again, which is exactly what happened.
+    const both = [IN_CORNER, ON_STRAIGHT]
+    const at = (d, corner) => {
+      const { unmount } = renderPanel({ notes: both, activeCorner: corner ?? null, cursorD: d, liveD: d })
+      const shown = {
+        corner: !!screen.queryByText('Corner note.'),
+        straight: !!screen.queryByText('Straight note.'),
+      }
+      unmount()
+      return shown
+    }
+    expect(at(0.128, CORNERS[1])).toEqual({ corner: true, straight: false })
+    expect(at(0.62, null)).toEqual({ corner: false, straight: true })
+    expect(at(0.40, null)).toEqual({ corner: false, straight: false })
+  })
+
+  it('KEEPS A PINNED PLACE VISIBLE while the lap plays on underneath it', () => {
+    // A driver revising T5 must be able to read what they already wrote about
+    // T5 while the tracker moves away — otherwise pinning re-creates the very
+    // complaint this change fixes, in the moment they are most engaged.
+    renderPanel({
+      notes: [IN_CORNER, ON_STRAIGHT],
+      activeCorner: CORNERS[1], cursorD: 0.128,
+      picked: true,
+      liveD: 0.62,
+    })
+    expect(screen.getByText('Corner note.')).toBeInTheDocument()
+    expect(screen.getByText('Straight note.')).toBeInTheDocument()
+  })
+
+  it('renders NOTHING rather than an empty shell where there is nothing', () => {
+    renderPanel({ notes: [IN_CORNER], activeCorner: null, cursorD: 0.40, liveD: 0.40 })
+    expect(screen.queryByText('WHAT YOU HAVE LEARNED HERE')).not.toBeInTheDocument()
+  })
+
+  it('KEEPS EVERY NOTE REACHABLE — gating must not cost discoverability', async () => {
+    // Trace notes used to render unconditionally, so positional visibility
+    // takes something away unless the whole master stays one click out.
+    renderPanel({ notes: [IN_CORNER, ON_STRAIGHT], activeCorner: null, cursorD: 0.40, liveD: 0.40 })
+    expect(screen.queryByText('Corner note.')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /ALL NOTES AT THIS TRACK \(2\)/ }))
+    expect(screen.getByText('Corner note.')).toBeInTheDocument()
+    expect(screen.getByText('Straight note.')).toBeInTheDocument()
+    // Labelled by place, so a list of bodies is navigable.
+    expect(screen.getByText('T5')).toBeInTheDocument()
+  })
+
+  it('REVISES THIS SESSION’S NOTE ON A STRAIGHT, not only in a corner', () => {
+    // Incidental to the spec and fixed by it: `mine` was read from the
+    // corner-keyed map, so a second note at the same place in the same session
+    // read as new on a straight — and would have collided on the unique key.
+    const mine = note({ id: 'm', session_key: 's-current', d_start: 0.62, d_end: 0.62, body: 'Mine here.' })
+    renderPanel({ notes: [mine], activeCorner: null, cursorD: 0.62, liveD: 0.62 })
+    expect(screen.getByRole('button', { name: 'Revise' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue('Mine here.')
   })
 })

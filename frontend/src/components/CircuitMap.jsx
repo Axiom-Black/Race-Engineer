@@ -204,10 +204,20 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub, onPick, corne
         const p = pts[Math.max(0, Math.min(m.idx ?? 0, pts.length - 1))]
         if (!p || p.x == null) return null
         const q = at(p)
+        // A mark LIGHTS UP while the car is at it, the same way a corner badge
+        // does — driven by the identical predicate the notes panel reads with
+        // (`isAtDistance`), resolved by the caller. So passing a note in replay
+        // is visible on the map and in the panel in the same frame.
         return (
-          <g key={m.key} aria-hidden="true">
-            <circle cx={q.x} cy={q.y} r="9" fill={C.bg} stroke={C.pink} strokeWidth="2" />
-            <text x={q.x} y={q.y + 4} fill={C.pink} fontSize="11" fontWeight="800" textAnchor="middle" fontFamily={font.ui}>
+          <g key={m.key} aria-hidden="true" data-active={m.active ? 'true' : 'false'}>
+            <circle
+              cx={q.x} cy={q.y} r={m.active ? 13 : 9}
+              fill={m.active ? C.pinkBg : C.bg} stroke={C.pink} strokeWidth={m.active ? 3 : 2}
+            />
+            <text
+              x={q.x} y={q.y + (m.active ? 5 : 4)} fill={C.pink}
+              fontSize={m.active ? 13 : 11} fontWeight="800" textAnchor="middle" fontFamily={font.ui}
+            >
               {m.count > 1 ? m.count : '✎'}
             </text>
           </g>

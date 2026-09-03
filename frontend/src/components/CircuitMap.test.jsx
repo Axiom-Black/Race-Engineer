@@ -82,3 +82,33 @@ describe('the corner badge', () => {
     expect(screen.queryByRole('button', { name: /Note corner/i })).toBeNull()
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC 001 — the mark on the map lights the same instant the panel shows the
+// note. docs/specs/001-note-visibility/spec.md
+// ─────────────────────────────────────────────────────────────────────────────
+describe('note marks', () => {
+  it('LIGHTS THE MARK THE CAR IS AT, and leaves the others alone', () => {
+    // `active` is resolved by the caller with `isAtDistance` — the identical
+    // predicate the notes panel reads with, so the map and the panel cannot
+    // disagree about where the car is. Asserted through the DOM flag because a
+    // radius is a rendering choice and the STATE is what must be right.
+    const { container } = renderMap({
+      noteMarks: [
+        { key: 'a', idx: 2, count: 1, active: true },
+        { key: 'b', idx: 14, count: 3, active: false },
+      ],
+    })
+    const marks = [...container.querySelectorAll('g[data-active]')]
+    expect(marks).toHaveLength(2)
+    expect(marks.map((m) => m.getAttribute('data-active'))).toEqual(['true', 'false'])
+    // The active one is drawn larger — the visible half of the same fact.
+    const r = marks.map((m) => Number(m.querySelector('circle').getAttribute('r')))
+    expect(r[0]).toBeGreaterThan(r[1])
+  })
+
+  it('draws a stack of several notes as its count', () => {
+    const { container } = renderMap({ noteMarks: [{ key: 'b', idx: 14, count: 3, active: false }] })
+    expect(container.querySelector('g[data-active] text').textContent).toBe('3')
+  })
+})

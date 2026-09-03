@@ -321,6 +321,72 @@ export function groupByProximity(notes, tolerance = GROUP_TOLERANCE) {
   return groups
 }
 
+/**
+ * Is the car at this place?
+ *
+ * **The one rule that decides whether a note is visible** — used by the panel,
+ * by the map marks, and by anything added later. Spec 001 exists because there
+ * used to be two rules of different *kinds*: corner-attached notes were selected
+ * by cursor position, and trace notes were not selected at all, so half the
+ * notes were unreadable during a replay and the other half never went away.
+ *
+ * **Inside the span, not near the midpoint.** A corner note's anchor is the
+ * corner's whole window — 60–180 m at COTA — and measuring to its midpoint would
+ * hide the note while the car is demonstrably still in the corner it is about.
+ * The tolerance is a pad on either end, which is also what makes a zero-width
+ * point note on a straight reachable at all.
+ *
+ * The tolerance is `GROUP_TOLERANCE` on purpose and **must not become its own
+ * constant**: it is the same number that declares two notes to be about one
+ * place, so sharing it makes "grouped together but only one of them is here"
+ * impossible by construction rather than merely unlikely.
+ */
+export function isAtDistance(span, d, tolerance = GROUP_TOLERANCE) {
+  const here = clamp01(d)
+  if (here === null) return false
+  const s = normaliseAnchor(span)
+  if (s === null) return false
+  const tol = Math.max(0, strictNum(tolerance) ?? 0)
+  return here >= s.dStart - tol && here <= s.dEnd + tol
+}
+
+/**
+ * Every note stack on this lap, in lap order, each knowing whether it landed on
+ * a detected corner.
+ *
+ * **One list, not two.** `attachToCorners` used to hand back a Map keyed by
+ * corner number plus a separate array of the rest, and the panel let that split
+ * decide what a driver saw — which is the root cause behind spec 001. A note is
+ * anchored to a place on the road; whether today's detector calls that place a
+ * corner is a *label*, so it is an attribute of the stack (`corner`, possibly
+ * null) rather than a category the stack lives in.
+ */
+export function stacksForLap(notes, corners, tolerance = GROUP_TOLERANCE) {
+  const list = Array.isArray(corners) ? corners : []
+  return groupByProximity(notes, tolerance).map((g) => {
+    let best = null
+    let bestGap = Infinity
+    for (const c of list) {
+      const cm = anchorMid(anchorFromCorner(c) ?? {})
+      if (cm === null) continue
+      const inside = g.anchorMid >= (strictNum(c.dStart) ?? cm) && g.anchorMid <= (strictNum(c.dEnd) ?? cm)
+      const gap = inside ? 0 : Math.abs(cm - g.anchorMid)
+      if (gap < bestGap) {
+        bestGap = gap
+        best = c
+      }
+    }
+    return { ...g, corner: best && bestGap <= tolerance ? best : null }
+  })
+}
+
+/** The stacks the car is at right now. */
+export function stacksAtDistance(stacks, d, tolerance = GROUP_TOLERANCE) {
+  return (Array.isArray(stacks) ? stacks : []).filter((s) =>
+    isAtDistance({ dStart: s?.dStart, dEnd: s?.dEnd }, d, tolerance),
+  )
+}
+
 function revisionRank(note) {
   const t = Date.parse(note?.session_recorded_at ?? '') || Date.parse(note?.created_at ?? '')
   return Number.isFinite(t) ? t : 0
@@ -372,32 +438,19 @@ export function pickForSession(stack, session) {
  * `loose`, and the map renders them on the trace at their own distance.
  */
 export function attachToCorners(notes, corners, tolerance = GROUP_TOLERANCE) {
-  const groups = groupByProximity(notes, tolerance)
-  const list = Array.isArray(corners) ? corners : []
   const attached = new Map()
   const loose = []
 
-  for (const g of groups) {
-    let best = null
-    let bestGap = Infinity
-    for (const c of list) {
-      const cm = anchorMid(anchorFromCorner(c) ?? {})
-      if (cm === null) continue
-      const inside = g.anchorMid >= (strictNum(c.dStart) ?? cm) && g.anchorMid <= (strictNum(c.dEnd) ?? cm)
-      const gap = inside ? 0 : Math.abs(cm - g.anchorMid)
-      if (gap < bestGap) {
-        bestGap = gap
-        best = c
-      }
-    }
-    if (best && bestGap <= tolerance) {
-      const k = best.n ?? anchorKey({ dStart: best.dStart, dEnd: best.dEnd })
-      const existing = attached.get(k)
-      if (existing) existing.notes.push(...g.notes)
-      else attached.set(k, { corner: best, ...g })
-    } else {
+  for (const s of stacksForLap(notes, corners, tolerance)) {
+    const { corner, ...g } = s
+    if (!corner) {
       loose.push(g)
+      continue
     }
+    const k = corner.n ?? anchorKey({ dStart: corner.dStart, dEnd: corner.dEnd })
+    const existing = attached.get(k)
+    if (existing) existing.notes.push(...g.notes)
+    else attached.set(k, { corner, ...g })
   }
   return { attached, loose }
 }

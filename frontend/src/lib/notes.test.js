@@ -5,6 +5,7 @@ import {
   anchorFromCorner, anchorFromDistance,
   conditionsFrom, conditionLabel, normaliseBody,
   buildNoteRow, isOrphaned, groupByProximity, pickForSession, attachToCorners,
+  isAtDistance, stacksForLap, stacksAtDistance,
 } from './notes.js'
 
 // A session shaped the way Postgres returns one, with the channel summary
@@ -423,5 +424,89 @@ describe('attachToCorners', () => {
     const { attached, loose } = attachToCorners([note()], [])
     expect(attached.size).toBe(0)
     expect(loose).toHaveLength(1)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC 001 — one rule decides whether a note is visible.
+// docs/specs/001-note-visibility/spec.md
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('isAtDistance', () => {
+  const span = { dStart: 0.40, dEnd: 0.44 }
+
+  it('is true inside the span and on both edges', () => {
+    expect(isAtDistance(span, 0.42)).toBe(true)
+    expect(isAtDistance(span, 0.40)).toBe(true)
+    expect(isAtDistance(span, 0.44)).toBe(true)
+  })
+
+  it('pads the span by the tolerance at each end — which is what makes a POINT note reachable', () => {
+    // A note on a straight is a zero-width span. Without the pad the only way
+    // to see it would be to land the cursor on its exact fraction, and the
+    // trace's points sit ~35 m apart down a straight.
+    expect(isAtDistance({ dStart: 0.6, dEnd: 0.6 }, 0.6 + GROUP_TOLERANCE * 0.9)).toBe(true)
+    expect(isAtDistance({ dStart: 0.6, dEnd: 0.6 }, 0.6 + GROUP_TOLERANCE * 1.5)).toBe(false)
+  })
+
+  it('MEASURES AGAINST THE WHOLE SPAN, not its midpoint', () => {
+    // A corner note's anchor is the corner's own window — 60-180 m at COTA. If
+    // this measured to the midpoint with the same tolerance, the note would
+    // vanish while the car was still in the corner it is about.
+    const wide = { dStart: 0.30, dEnd: 0.36 }
+    const mid = 0.33
+    expect(Math.abs(0.355 - mid)).toBeGreaterThan(GROUP_TOLERANCE)
+    expect(isAtDistance(wide, 0.355)).toBe(true)
+  })
+
+  it('says no rather than guessing when either side is unusable', () => {
+    expect(isAtDistance(span, null)).toBe(false)
+    expect(isAtDistance(span, 'x')).toBe(false)
+    expect(isAtDistance(null, 0.42)).toBe(false)
+    expect(isAtDistance({ dStart: null, dEnd: null }, 0.42)).toBe(false)
+  })
+})
+
+describe('stacksForLap', () => {
+  const CORNERS = [{ n: 5, dStart: 0.12, d: 0.128, dEnd: 0.135 }]
+
+  it('returns ONE lap-ordered list, corner attachment as an attribute not a category', () => {
+    // The root cause of spec 001: two collections with different meanings let
+    // an implementation detail decide what a driver sees.
+    const stacks = stacksForLap(
+      [note({ id: 'straight', d_start: 0.62, d_end: 0.62 }), note({ id: 'corner', d_start: 0.125, d_end: 0.130 })],
+      CORNERS,
+    )
+    expect(stacks.map((s) => s.notes[0].id)).toEqual(['corner', 'straight'])
+    expect(stacks[0].corner.n).toBe(5)
+    expect(stacks[1].corner).toBe(null)
+  })
+
+  it('keeps every note when the lap has no corners at all', () => {
+    const stacks = stacksForLap([note()], [])
+    expect(stacks).toHaveLength(1)
+    expect(stacks[0].corner).toBe(null)
+  })
+})
+
+describe('stacksAtDistance', () => {
+  const CORNERS = [{ n: 5, dStart: 0.12, d: 0.128, dEnd: 0.135 }]
+  const NOTES = [
+    note({ id: 'corner', d_start: 0.125, d_end: 0.130 }),
+    note({ id: 'straight', d_start: 0.62, d_end: 0.62 }),
+  ]
+
+  it('SELECTS BOTH KINDS BY THE SAME RULE — the whole point of the spec', () => {
+    const stacks = stacksForLap(NOTES, CORNERS)
+    expect(stacksAtDistance(stacks, 0.128).map((s) => s.notes[0].id)).toEqual(['corner'])
+    expect(stacksAtDistance(stacks, 0.62).map((s) => s.notes[0].id)).toEqual(['straight'])
+    expect(stacksAtDistance(stacks, 0.40)).toEqual([])
+  })
+
+  it('finds a corner note without being told about the corner', () => {
+    // Replay drives DISTANCE, and a lap re-detected differently may not call
+    // this place a corner at all. Visibility must not depend on that.
+    const stacks = stacksForLap(NOTES, [])
+    expect(stacksAtDistance(stacks, 0.1275).map((s) => s.notes[0].id)).toEqual(['corner'])
   })
 })
