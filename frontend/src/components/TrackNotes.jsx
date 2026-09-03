@@ -30,7 +30,7 @@ import { useEffect, useState } from 'react'
 import { C, font } from '../theme'
 import { Button } from './ui'
 import {
-  attachToCorners, pickForSession, conditionLabel, isOrphaned,
+  stacksForLap, stacksAtDistance, anchorMid, pickForSession, conditionLabel, isOrphaned,
   anchorFromCorner, anchorFromDistance, anchorLabel, MAX_NOTE_CHARS,
 } from '../lib/notes'
 
@@ -184,12 +184,78 @@ function Editor({ anchor, anchorName, existing, onSave, onDirty, onReleasePin, p
   )
 }
 
+/**
+ * What to call a place.
+ *
+ * `T7` when the stack landed on a corner this lap, its distance otherwise —
+ * and a stack that matched no corner is NOT an error state. The note is
+ * anchored to a place on the road; the road did not move, only our numbering
+ * of it did, so it is labelled honestly rather than filed somewhere separate.
+ */
+function stackLabel(stack, lengthKm) {
+  if (stack?.corner?.n != null) return `T${stack.corner.n}`
+  return anchorLabel({ d_start: stack?.dStart, d_end: stack?.dEnd }, lengthKm)
+}
+
+/**
+ * One place's notes: the relevant one, with its history behind a count.
+ *
+ * `pickForSession` ranks car first, then conditions, then recency — a note in
+ * the car being driven beats a newer note in a different one, because braking
+ * points do not transfer between an LMP2 and a Hypercar. Its own expansion
+ * state, so opening T5's history does not open every other corner's.
+ */
+function Stack({ stack, session, lengthKm, onDelete, busy }) {
+  const [open, setOpen] = useState(false)
+  const ranked = pickForSession(stack, session)
+  if (!ranked) return null
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ fontSize: 10, color: stack.corner ? C.pink : C.dim }}>
+        {stackLabel(stack, lengthKm)}
+        {!stack.corner && <span style={{ color: C.dim }}> · no corner detected here on this lap</span>}
+      </div>
+      <ul style={{ margin: '2px 0 0', padding: 0 }}>
+        <NoteBody note={ranked.note} onDelete={onDelete} busy={busy} />
+        {open && ranked.rest.map((n) => (
+          <NoteBody key={n.id} note={n} onDelete={onDelete} busy={busy} />
+        ))}
+      </ul>
+      {ranked.rest.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          style={{ background: 'none', border: 'none', color: C.pink, fontSize: 10.5, cursor: 'pointer', padding: '4px 0' }}
+        >
+          {open
+            ? 'hide earlier sessions'
+            : `${ranked.rest.length} more from other session${ranked.rest.length === 1 ? '' : 's'}`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function TrackNotes({
   notes = [],
   session,
   corners = [],
   activeCorner,
   cursorD,
+  // WHERE THE CAR IS NOW, as opposed to where a new note would go.
+  //
+  // The two are the same thing until a pin is held: `activeCorner`/`cursorD`
+  // describe the *anchor* place, and while a driver is writing about T20 the
+  // parent freezes them there. Reading has to keep following the tracker
+  // regardless — otherwise pinning a note re-creates the very complaint this
+  // change fixes, in the one moment the driver is most engaged. Optional, so a
+  // caller that omits it gets the anchor place for both.
+  //
+  // DISTANCE ONLY, no live corner: visibility is deliberately blind to whether
+  // the detector calls this place a corner (spec 001 R3). A `liveCorner` prop
+  // was planned and then dropped — an unused prop is a promise the component
+  // does not keep, and it would have implied corner identity mattered here.
+  liveD,
   lengthKm,
   loading,
   error,
@@ -199,7 +265,6 @@ export default function TrackNotes({
   onSave,
   onDelete,
 }) {
-  const [showAll, setShowAll] = useState(false)
   // The PINNED place, if any. Null means "follow the cursor".
   //
   // Why a pin exists at all: the map scrubs on mousemove, so the anchor tracked
@@ -208,7 +273,10 @@ export default function TrackNotes({
   // keyboard re-pointed the note somewhere else, every time. Hovering is a
   // preview; writing is a commitment, so the first keystroke freezes the place.
   const [pin, setPin] = useState(null)
-  const { attached, loose } = attachToCorners(notes, corners)
+  const [showEvery, setShowEvery] = useState(false)
+  // ONE list of stacks, each knowing whether it landed on a detected corner.
+  // Not two collections — see lib/notes.js `stacksForLap` and spec 001.
+  const stacks = stacksForLap(notes, corners)
 
   // The place the cursor is over right now — the preview.
   const live = {
@@ -227,10 +295,35 @@ export default function TrackNotes({
   const isPinned = picked || !!pin
   const releasePin = () => { setPin(null); onClearPick?.() }
 
-  const stack = targetCorner ? attached.get(targetCorner.n) : null
-  const here = stack ? pickForSession(stack, session) : null
-  // This session's own note for the anchor, which is what "revise" edits.
-  const mine = (stack?.notes ?? []).find((n) => n.session_key === String(session?.id ?? ''))
+  /**
+   * WHICH NOTES ARE VISIBLE — one rule, applied to every note.
+   *
+   * A stack shows while the car is at its place, whether the driver got there by
+   * hovering the map or by watching the replay drive the cursor round: both move
+   * the same cursor, which is why "the tracker passes that point" needs no code
+   * of its own. Corner-attached and trace notes go through the identical test —
+   * previously the first was gated on sitting inside a detected corner and the
+   * second was gated on nothing at all, so one kind was invisible during a
+   * replay and the other never went away.
+   */
+  const readingD = liveD ?? cursorD
+  const anchorPlace = anchorMid(anchor)
+  const atCursor = stacksAtDistance(stacks, readingD)
+  // A HELD PIN KEEPS ITS OWN PLACE VISIBLE, on top of wherever the car now is.
+  // A driver revising T20 must be able to read what they already wrote about T20
+  // while the lap plays on underneath them.
+  const atPin = isPinned ? stacksAtDistance(stacks, anchorPlace) : []
+  const seen = new Set(atCursor.map((s) => s.anchorMid))
+  const visible = [...atCursor, ...atPin.filter((s) => !seen.has(s.anchorMid))]
+    .sort((a, b) => a.anchorMid - b.anchorMid)
+
+  // This session's own note for the ANCHOR place, which is what "revise" edits.
+  // Resolved from the same stacks as everything else, so revising works on a
+  // straight exactly as it does in a corner — it previously read from the
+  // corner-keyed map and so could only ever find a note in a detected corner.
+  const mine = stacksAtDistance(stacks, anchorPlace)
+    .flatMap((s) => s.notes)
+    .find((n) => n.session_key === String(session?.id ?? ''))
 
   const total = notes.length
 
@@ -276,52 +369,58 @@ export default function TrackNotes({
         />
       </div>
 
-      {here && (
+      {visible.length > 0 && (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1, color: C.dim }}>
             WHAT YOU HAVE LEARNED HERE
           </div>
-          <ul style={{ margin: '4px 0 0', padding: 0 }}>
-            <NoteBody note={here.note} onDelete={onDelete} busy={busy} />
-            {showAll && here.rest.map((n) => (
-              <NoteBody key={n.id} note={n} onDelete={onDelete} busy={busy} />
-            ))}
-          </ul>
-          {here.rest.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowAll((v) => !v)}
-              style={{ background: 'none', border: 'none', color: C.pink, fontSize: 10.5, cursor: 'pointer', padding: '4px 0' }}
-            >
-              {showAll
-                ? 'hide earlier sessions'
-                : `${here.rest.length} more from other session${here.rest.length === 1 ? '' : 's'}`}
-            </button>
-          )}
+          {visible.map((s) => (
+            <Stack
+              key={s.anchorMid}
+              stack={s}
+              session={session}
+              lengthKm={lengthKm}
+              onDelete={onDelete}
+              busy={busy}
+            />
+          ))}
         </div>
       )}
 
-      {loose.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1, color: C.dim }}>
-            ON THE TRACE — no corner detected here on this lap
-          </div>
-          {/* Not an error state. The note is anchored to a place on the road and
-              the road did not move; only our numbering of it did. */}
-          <ul style={{ margin: '4px 0 0', padding: 0 }}>
-            {loose.map((g) => (
-              <li key={g.anchorMid} style={{ listStyle: 'none' }}>
-                <div style={{ fontSize: 10, color: C.dim, marginTop: 6 }}>
-                  {anchorLabel({ d_start: g.dStart, d_end: g.dEnd }, lengthKm)}
-                </div>
-                <ul style={{ margin: 0, padding: 0 }}>
-                  {g.notes.map((n) => (
-                    <NoteBody key={n.id} note={n} onDelete={onDelete} busy={busy} />
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
+      {/* EVERY NOTE AT THIS TRACK, collapsed.
+          Trace notes used to render unconditionally, so making visibility
+          positional would have taken away a driver's ability to simply *see*
+          their notes. The fix for one complaint must not quietly create
+          another, so the whole master stays one click away, in lap order. */}
+      {stacks.length > 0 && (
+        <div style={{ marginTop: 12, borderTop: `1px solid ${C.panel2}`, paddingTop: 8 }}>
+          <button
+            type="button"
+            onClick={() => setShowEvery((v) => !v)}
+            aria-expanded={showEvery}
+            style={{
+              background: 'none', border: 'none', color: C.pink, fontSize: 10.5,
+              fontWeight: 900, letterSpacing: 1, cursor: 'pointer', padding: 0,
+            }}
+          >
+            {showEvery ? 'HIDE' : 'SHOW'} ALL NOTES AT THIS TRACK ({total})
+          </button>
+          {showEvery && (
+            <ul style={{ margin: '6px 0 0', padding: 0 }}>
+              {stacks.map((s) => (
+                <li key={s.anchorMid} style={{ listStyle: 'none' }}>
+                  <div style={{ fontSize: 10, color: C.dim, marginTop: 6 }}>
+                    {stackLabel(s, lengthKm)}
+                  </div>
+                  <ul style={{ margin: 0, padding: 0 }}>
+                    {s.notes.map((n) => (
+                      <NoteBody key={n.id} note={n} onDelete={onDelete} busy={busy} />
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </section>

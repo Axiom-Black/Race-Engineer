@@ -23,7 +23,7 @@ import InstrumentCluster from './InstrumentCluster'
 import CircuitMap from './CircuitMap'
 import MapInstruments from './MapInstruments'
 import { resolveCorners, cornerAt } from '../lib/corners'
-import { groupByProximity } from '../lib/notes'
+import { groupByProximity, isAtDistance } from '../lib/notes'
 import { useTrackNotes } from '../lib/useTrackNotes'
 import TrackNotes from './TrackNotes'
 import { distanceAxis, xAt, nearestIndex } from '../lib/traceAxis'
@@ -1017,14 +1017,18 @@ function TrackMapTab({ pts, persistedCorners, aspect, cursor, setCursor, lapSeco
   // One mark per stack, placed by resolving the note's distance against the
   // distance axis. NOT `i / (n - 1)`: the trace's 400 points have been spent by
   // importance since 26 Aug, so `d` is the only position a point has.
+  const liveD = axis[Math.min(cursor, Math.max(0, axis.length - 1))]
   const noteMarks = useMemo(
     () =>
       groupByProximity(notes).map((g) => ({
         key: `${g.anchorMid}`,
         idx: nearestIndex(axis, g.anchorMid),
         count: g.notes.length,
+        // Lit by the SAME predicate the panel reads with, so the mark on the map
+        // and the note in the panel can never disagree about where the car is.
+        active: isAtDistance({ dStart: g.dStart, dEnd: g.dEnd }, liveD),
       })),
-    [notes, axis],
+    [notes, axis, liveD],
   )
   if (!pts.length) return <div style={{ color: C.dim, padding: 20 }}>No trace for this lap.</div>
   return (
@@ -1063,6 +1067,10 @@ function TrackMapTab({ pts, persistedCorners, aspect, cursor, setCursor, lapSeco
         corners={corners}
         activeCorner={pickedIdx == null ? active : cornerAt(corners, pickedIdx)}
         cursorD={axis[Math.min(pickedIdx ?? cursor, axis.length - 1)]}
+        // Where the car is NOW, which keeps moving while a pick is held — so a
+        // driver writing about T20 still sees notes as the replay passes them.
+        // Distance only: visibility must not depend on corner detection.
+        liveD={liveD}
         picked={pickedIdx != null}
         onClearPick={() => setPickedIdx(null)}
         lengthKm={lengthKm}

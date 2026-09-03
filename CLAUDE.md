@@ -24,6 +24,14 @@ phases — receive AI race-engineering debriefs from a ten-agent system.
 > the Codex — it decides what work is worth doing; the Codex decides how that
 > work is done well. Amend it only per its own protocol.
 >
+> **Governing procedure — per feature.** `docs/spec-driven-development.md` is how
+> a feature is defined before it is coded: `docs/specs/NNN-slug/` holding
+> `spec.md` (what, and **what not**), `plan.md` (how, checked against the
+> constitution), `tasks.md` (in what order). Required for anything touching more
+> than one surface, changing a rule a driver can observe, or touching schema;
+> deliberately skipped for copy fixes and one-file changes. Reference
+> implementation: `docs/specs/001-note-visibility/`.
+>
 > **Governing standard — how to build it.** The **Axiom Black DE Codex**
 > (`.claude/skills/axiomblack-de-codex/`) is the binding engineering standard
 > for all code in this repo — it auto-loads as a skill; conform to it by
