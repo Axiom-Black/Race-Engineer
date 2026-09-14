@@ -102,9 +102,25 @@ no figures at all; see its §Coverage targets.
 | **Race** | Traffic, fuel/energy burn, pit stops — the messiest and most realistic |
 | **Wet or night, if LMU offers it** | Grip is genuinely different, which is a *real-world* test of the 26 Aug robustness rework rather than a synthetic one |
 
-> **Dependency to confirm on Day 0:** which classes you actually have access to.
-> If Hypercar and LMGT3 are both unavailable, the virtual-energy branch stays
-> untested and that must be recorded as an open risk rather than quietly skipped.
+> **Day 0 dependency — ANSWERED 14 Sep 2026: the owner has all five classes**
+> (Hypercar, LMGT3, LMP2, LMP3, GTE). The virtual-energy branch is reachable, so
+> the open risk this note was guarding against does not apply. Every row of the
+> car matrix above is drivable.
+>
+> **It also moves one thing earlier, and the freeze is why.** Day 4 is the first
+> real file through the `VirtualEnergySetting` branch in `svm.js` — the only
+> decode path in the product that has never met real data. But §1 freezes ingest
+> for the whole window and says a parser bug found mid-window is *logged and
+> re-driven afterwards*, not fixed. A day-4 parse failure would therefore cost
+> **both** virtual-energy classes for the full fourteen days, with no legal
+> remedy until day 15.
+>
+> So the branch is smoke-tested on **Day 0, before the clock starts**: upload one
+> Hypercar or LMGT3 session, confirm it ingests and the setup panel reads
+> sensibly, and delete it. Nothing is frozen yet, so a failure found there is
+> still fixable — and a pass costs one upload. **Day 4 keeps its slot as the real
+> scored session**; this is a pre-flight check, not a replacement for it, and the
+> Day 0 upload is deliberately deleted so it never enters the scored set.
 
 ---
 
