@@ -113,6 +113,11 @@ no figures at all; see its §Coverage targets.
 Opinions collected after the fact are unfalsifiable. Each dimension gets a
 probe that produces evidence during the session.
 
+**D1 carries two probes, not one.** The prediction hit-rate asks whether the app
+made the driver faster; the Andretti test (D1b) asks whether it can hold what the
+driver knows. Both are utility, and a product can pass either while failing the
+other.
+
 ### D1 · Utility to the driver — *measured as a prediction hit-rate*
 
 The trap: "did it help?" answered on Sunday about Tuesday is a memory test, not
@@ -131,6 +136,61 @@ Then drive, and record what actually happened. Two weeks of this yields a
 A miss is not a failure of the product — a wrong prediction that the data
 *explains afterwards* is a hit for the product and a miss for the driver. Record
 which of the two it was; that distinction is the finding.
+
+### D1b · The Andretti test — *measured as an annotation a driver can reproduce*
+
+**Where this came from.** A photograph of a hand-drawn, hand-annotated circuit
+map signed by Mario Andretti (owner's find, 11 Sep 2026). Strip the drawing away
+and it carries exactly **two kinds of annotation**, placed on the road itself:
+
+- **Gear, at each corner** — 1 through 5, with **"Flat"** on one section, which is
+  the same statement in other words: full throttle, no lift, no change of gear.
+- **Why the corner is hard** — *"hard braking down hill"*, *"interesting negative
+  camber corner"*.
+
+That is a driver's complete working note for a circuit, from someone who had no
+telemetry and still needed the map. **It is the most credible specification we
+have of what a track note is for**, and it did not come from us guessing.
+
+**Probe — once per venue, after the session, timed:** reproduce that map for the
+track you just drove, using only the app. One pass round the lap, filling in for
+every corner what Andretti filled in. Record:
+
+1. **Coverage** — of your detected corners, how many could you annotate **from the
+   app alone**, without recalling the drive?
+2. **Fetched vs. typed** — which annotations did the app *already know* (gear, min
+   speed), and which did you have to type as a note?
+3. **Time** to complete the lap, and where it stalled.
+4. **What you could not express at all**, in your words, verbatim → straight into
+   the D4 question log, tagged.
+
+**What it measures that the D1 prediction probe does not.** The prediction
+hit-rate asks whether the app made you *faster*. This asks whether the app can
+hold what a driver *knows* — a different question, and the one the whole Track
+Notes design is a bet on. A driver can be quicker while the product is still
+unable to carry a single thing they learned.
+
+**Two outcomes are already predictable, and are written down here so the probe
+cannot be graded generously after the fact:**
+
+- **Gear-per-corner should need no typing.** `gearAtApex` is computed at ingest
+  and sits on every corner badge (⚙), alongside min corner speed, which Andretti
+  did not even record. If reproducing the gear map is slow or manual, that is a
+  **presentation defect** and the finding is ours, not the driver's.
+- **"Down hill" and "negative camber" cannot be derived, and one of them never
+  will be.** There is no camber channel in the 70 we decode, and gradient has
+  never been read off `G Force Vert` against a circuit known to have any — which
+  is precisely why Spa and Sebring are scheduled (§2). **Two of Andretti's four
+  annotation types are things no export can tell you**, and that is the argument
+  for notes existing at all rather than a gap to close.
+
+**Exit reading.** A venue passes this probe when the annotation you produce is
+one a driver could hand to another driver and have it be useful. Anything less,
+say what was missing — that sentence is worth more than the score.
+
+> **On the artefact itself:** the photograph is *not* committed. It is a third
+> party's signed work, the repo is proprietary, and the probe needs the structure
+> — two annotation kinds, placed on the road — which is recorded above in full.
 
 ### D2 · Ease of use — *measured with a stopwatch*
 
@@ -172,6 +232,12 @@ in elsewhere silently gets the defaults back. That is a known, logged limitation
 with four independent accounts being exercised it stops being a footnote and
 becomes a measurable defect. Whether it matters is exactly what this dimension
 is for.
+
+**The notes surface has a second probe of its own: D1b, the Andretti test.** The
+four readings above measure whether a change is *easy to make*; D1b measures
+whether the notes surface can hold what a driver actually knows. A notes box can
+score perfectly on time, attempts, persistence and reversibility while still being
+unable to carry a single useful sentence about a corner.
 
 **A design constraint for the notes build, learned the hard way this week:**
 **anchor a note to a distance span, never to a corner number.** Corner numbering
@@ -410,7 +476,22 @@ minutes gets skipped by day 4, and then the iteration has no evidence.
   - "What gear should I actually be in at T4?"                    [EXTERNAL]
 - DEFECTS: corner 14 badge overlaps corner 15 on this track
 - BUILD: <sha from the header marker>
+
+# first session at a venue only — the Andretti test (D1b)
+- ANNOTATED: 14 of 17 corners from the app alone
+- FETCHED (app knew): gear, min speed.  TYPED: braking refs, 2 kerb notes
+- COULD NOT EXPRESS: "the rise before T6 unloads the car" — no gradient anywhere
+- TIME: 6m 10s, stalled hunting for the note box on the first two corners
 ```
+
+**One line in that example is worth reading twice.** The sample question *"What
+gear should I actually be in at T4?"* is tagged **[EXTERNAL]** — and it stays
+EXTERNAL even though we compute `gearAtApex`, because our data says what gear you
+**were** in, and the question asks what gear you **should** be in. Andretti's map
+answers the second. **That gap is the entire case for the Phase 3 curated corner
+dossiers**, and it is also why Track Notes is built as the driver's *own* guide
+first: a driver accumulating their own answer to that question over a season is
+the only version of it we can honestly ship today.
 
 ---
 
@@ -442,7 +523,8 @@ The iteration is done when **all** of these are true. Not when 14 days elapse.
 | E4 | **≥ 1 session with a 12+ lap unbroken stint**, so the 10-lap average has real data behind it |
 | E5 | **Question log ≥ 20 entries**, every one tagged. This is the Phase 2 brief. |
 | E6 | **Prediction hit-rate recorded** — N of M, with each miss classified as *driver miss* or *product miss* |
-| E7 | **A written verdict per dimension** (D1–D6), each ending in Do Now / Later / Never |
+| E6b | **The Andretti test run at every venue driven** (D1b), each with its coverage count, its fetched-vs-typed split, and at least one verbatim "could not express" line — or the venue recorded as unrun, with the reason |
+| E7 | **A written verdict per dimension** (D1–D6, D1b included), each ending in Do Now / Later / Never |
 | E8 | **Iteration 6 pulled by the verdict**, not by this document or by anything already in the backlog |
 | E9 | **All four surfaces in D3 evaluated** — or the unbuilt ones explicitly recorded as unevaluated, with the reason |
 | E10 | **Each of the four accounts** has run at least one full session end-to-end (sign in → upload → read → change something → delete), with D1–D5 recorded separately |
