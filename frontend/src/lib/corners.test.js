@@ -7,6 +7,9 @@ import {
   curvatureAt, outwardNormal, speedDips, detectCorners, topSpeedIndex,
   relaxLabels, cornerAt, cornersFromPersisted, resolveCorners, DEFAULTS,
 } from './corners.js'
+// The consumer whose contract this file now pins: a resolved corner must be
+// anchorable, or a Track Note has nothing to attach to.
+import { anchorFromCorner } from './notes.js'
 
 /** A closed circle of `n` points — constant curvature everywhere. */
 function circle(n, r = 0.4, speed = 100) {
@@ -345,3 +348,66 @@ describe('resolveCorners', () => {
     expect(resolveCorners([], circle(300, 0.02)).length).toBeGreaterThan(0)
   })
 })
+
+// ── The contract the Track Notes anchor depends on ─────────────────────────
+//
+// Reported 28 Aug with a screenshot: a corner pinned, text typed, Save still
+// disabled. Both resolvers converted `d`/`dStart`/`dEnd` into indices and
+// DROPPED the fractions, so `anchorFromCorner` returned null for every real
+// corner and the corner-note path had never worked in production.
+//
+// Indices are how a lap is drawn; `d` is what a corner IS. A note anchors to a
+// distance span precisely so it survives renumbering and re-indexing — so a
+// resolver that discards `d` leaves the note nothing to hold on to.
+describe('every resolved corner carries its distance, not just its index', () => {
+  const ring = (n = 40) =>
+    Array.from({ length: n }, (_, i) => ({
+      x: 0.5 + 0.4 * Math.cos((i / n) * 2 * Math.PI),
+      y: 0.5 + 0.4 * Math.sin((i / n) * 2 * Math.PI),
+      d: i / (n - 1),
+      s: 100 + (i % 5) * 20,
+      g: 4,
+    }))
+
+  function assertAnchorable(corners) {
+    expect(corners.length).toBeGreaterThan(0)
+    for (const c of corners) {
+      expect(Number.isFinite(c.d)).toBe(true)
+      expect(Number.isFinite(c.dStart)).toBe(true)
+      expect(Number.isFinite(c.dEnd)).toBe(true)
+      expect(c.dStart).toBeLessThanOrEqual(c.dEnd)
+      // The property that actually matters: a note can anchor to it.
+      const anchor = anchorFromCorner(c)
+      expect(anchor).not.toBeNull()
+      expect(Number.isFinite(anchor.dStart)).toBe(true)
+    }
+  }
+
+  it('holds for the PERSISTED set (ingest-time detection)', () => {
+    const pts = ring()
+    const persisted = [
+      { n: 1, dStart: 0.08, d: 0.12, dEnd: 0.18, minSpeed: 63, gear: 2 },
+      { n: 2, dStart: 0.55, d: 0.60, dEnd: 0.66, minSpeed: 147, gear: 4 },
+    ]
+    assertAnchorable(cornersFromPersisted(persisted, pts))
+  })
+
+  it('holds for the FALLBACK detector (sessions ingested before that)', () => {
+    // A legacy session's map is coarser, not broken — and its notes must work
+    // too, or the fallback quietly becomes a second-class citizen.
+    assertAnchorable(detectCorners(ring(60)))
+  })
+
+  it('keeps the INGESTED fractions rather than re-deriving them from the axis', () => {
+    // Ingest measured these at 25 Hz against full-rate lateral G; the trace's
+    // 400 points are a coarser grid. Re-deriving `d` from `axis[apexIdx]` would
+    // move every corner a few metres, so the same corner would key differently
+    // before and after a re-render.
+    const pts = ring()
+    const [c] = cornersFromPersisted([{ n: 1, dStart: 0.081, d: 0.123, dEnd: 0.187 }], pts)
+    expect(c.d).toBe(0.123)
+    expect(c.dStart).toBe(0.081)
+    expect(c.dEnd).toBe(0.187)
+  })
+})
+

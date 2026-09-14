@@ -176,6 +176,9 @@ export function detectCorners(pts, opts = {}) {
   const { threshold, minRun, mergeGap, span, prominence, minGap } = { ...DEFAULTS, ...opts }
   if (!Array.isArray(pts) || pts.length < 10) return []
 
+  // Needed so each corner can report WHERE it is as a distance fraction, not
+  // only as an index into this lap's point array — see the return shape below.
+  const axis = distanceAxis(pts)
   const k = pts.map((_, i) => curvatureAt(pts, i, span))
 
   // Contiguous runs above threshold.
@@ -232,6 +235,17 @@ export function detectCorners(pts, opts = {}) {
       startIdx: a,
       apexIdx: apex,
       endIdx: b,
+      // DISTANCE FRACTIONS TRAVEL WITH THE CORNER, alongside the indices.
+      //
+      // Indices are how this lap is drawn; `d` is what the corner IS. A Track
+      // Note anchors to a distance span precisely so it survives the detector
+      // renumbering or re-indexing — and a resolver that converts `d` to an
+      // index and drops it leaves the note with nothing to anchor to. That is
+      // not hypothetical: it disabled Save on every corner in production, while
+      // notes on straights (which read the distance axis directly) worked fine.
+      dStart: axis[a],
+      d: axis[apex],
+      dEnd: axis[b],
       minSpeed: Number.isFinite(minSpeed) ? Math.round(minSpeed) : null,
       gearAtApex: Number.isFinite(gear) ? Math.round(gear) : null,
       nx,
@@ -332,6 +346,14 @@ export function cornersFromPersisted(persisted, pts) {
         startIdx: Math.min(startIdx, apexIdx),
         apexIdx,
         endIdx: Math.max(endIdx, apexIdx),
+        // The ORIGINAL fractions, not the axis values the indices round to.
+        // Ingest measured these at 25 Hz against the full-rate lateral-G trace;
+        // the 400-point axis is a coarser grid, so re-deriving them from
+        // `axis[apexIdx]` would quietly move every corner a few metres and make
+        // a note saved today disagree with the same corner tomorrow.
+        dStart: Number.isFinite(strictNum(c?.dStart)) ? strictNum(c.dStart) : d,
+        d,
+        dEnd: Number.isFinite(strictNum(c?.dEnd)) ? strictNum(c.dEnd) : d,
         minSpeed: Number.isFinite(minSpeed) ? Math.round(minSpeed) : null,
         gearAtApex: Number.isFinite(gear) ? Math.round(gear) : null,
         direction: c?.dir ?? null,

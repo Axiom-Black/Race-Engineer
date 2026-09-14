@@ -15,15 +15,27 @@ import { C, font } from '../theme'
 import { RadialGauge, PedalBar, GForceCross } from './InstrumentCluster'
 import { gearLabel } from '../lib/gauges'
 import { strictNum } from '../lib/num'
+import { useUnits } from '../lib/useUnits'
 
-function Readout({ label, value, unit }) {
-  const missing = value === null || value === undefined || value === '—'
+/**
+ * One panel reading, converted at the display edge.
+ *
+ * Takes a RAW SI number plus its unit; a value with no unit (a gear) passes
+ * through. Same reasoning as SessionReport's StatCell — the conversion lives in
+ * the atom so that "every number follows the toggle" is structural rather than
+ * a thing to remember at each call site.
+ */
+function Readout({ label, value, unit, dp }) {
+  const { format } = useUnits()
+  const raw = strictNum(value)
+  const shown = unit && Number.isFinite(raw) ? format(raw, unit, dp) : null
+  const missing = shown ? shown.missing : (value === null || value === undefined || value === '—')
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <span style={{ fontSize: 8.5, letterSpacing: 1.4, color: C.dim, fontWeight: 700 }}>{label}</span>
       <span style={{ fontFamily: font.mono, fontSize: 15, fontWeight: 800, color: missing ? C.dim : C.silver3 }}>
-        {missing ? '—' : value}
-        {unit && !missing ? <span style={{ fontSize: 9, color: C.dim, fontWeight: 400 }}> {unit}</span> : null}
+        {missing ? '—' : (shown ? shown.text : value)}
+        {unit && !missing ? <span style={{ fontSize: 9, color: C.dim, fontWeight: 400 }}> {shown ? shown.unit : unit}</span> : null}
       </span>
     </div>
   )
@@ -71,21 +83,21 @@ export default function MapInstruments({ point, corner, lengthKm, maxSpeed = 260
         </div>
         <div style={{ display: 'flex', gap: 18 }}>
           <Readout label="LAP" value={Number.isFinite(d) ? (d * 100).toFixed(1) : null} unit="%" />
-          <Readout label="DISTANCE" value={metres} unit="m" />
+          <Readout label="DISTANCE" value={metres} unit="m" dp={0} />
         </div>
         {corner && (
           // The apex figures are the corner's, not the cursor's — labelled so,
           // because a driver comparing them to the live speed above needs to
           // know which one moves as they scrub.
           <div style={{ display: 'flex', gap: 18 }}>
-            <Readout label="APEX SPEED" value={corner.minSpeed} unit="km/h" />
+            <Readout label="APEX SPEED" value={corner.minSpeed} unit="km/h" dp={0} />
             <Readout label="APEX GEAR" value={corner.gearAtApex} />
           </div>
         )}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-        <RadialGauge value={point.s} max={maxSpeed} label="SPEED" unit="KM/H" color={C.pink} size={104} />
+        <RadialGauge value={point.s} max={maxSpeed} label="SPEED" unit="km/h" color={C.pink} size={104} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.panel2, borderRadius: 8, padding: '3px 13px' }}>
           <span style={{ fontSize: 8.5, color: C.dim, letterSpacing: 1.2, fontWeight: 700 }}>GEAR</span>
           <span style={{ fontSize: 17, fontWeight: 900, color: C.blue, fontFamily: font.mono }}>

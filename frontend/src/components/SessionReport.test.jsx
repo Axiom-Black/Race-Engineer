@@ -8,7 +8,7 @@
 // not. A 730-line component that no test so much as imports is a hole in the
 // gate, so this is deliberately a SMOKE test first and a feature test second:
 // merely importing and mounting it would have failed on that mistake.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -20,7 +20,26 @@ vi.mock('../lib/sessions', () => ({
   getSessionTrace: (...a) => getSessionTrace(...a),
 }))
 
+// Track Notes reach Supabase, so the query layer is mocked here the same way
+// lib/sessions is. Note the boundary this keeps: lib/notes.js — where every
+// anchor, grouping and relevance RULE lives — needs no mock at all and is
+// tested against no database in notes.test.js. Only the edge is stubbed.
+const listTrackNotes = vi.fn(async () => [])
+const saveNote = vi.fn(async (row) => ({ id: 'new', ...row }))
+const deleteNote = vi.fn(async () => {})
+
+// UnitsProvider reads the signed-in driver so preferences are per account.
+vi.mock('../lib/auth', () => ({ useAuth: () => ({ user: { id: 'driver-1' } }) }))
+
+vi.mock('../lib/trackNotes', () => ({
+  listTrackNotes: (...a) => listTrackNotes(...a),
+  saveNote: (...a) => saveNote(...a),
+  deleteNote: (...a) => deleteNote(...a),
+}))
+
 const SessionReport = (await import('./SessionReport.jsx')).default
+const { UnitsProvider } = await import('../lib/unitsContext.jsx')
+const UnitToggle = (await import('./UnitToggle.jsx')).default
 
 const chans = (over = {}) => [
   { name: 'Ground Speed', unit: 'km/h', domain: 'Telemetry', sampleRateHz: 50, min: 0, max: 245.98, allZero: false, reliable: true, ...over.gs },
@@ -416,5 +435,161 @@ describe('the Performance comparison', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Performance' }))
     expect(screen.getByText('Peak brake temp')).toBeInTheDocument()
     expect(screen.getAllByText('not in this export').length).toBeGreaterThan(0)
+  })
+})
+
+// ── W0.2 regression: the toggle must reach the SESSION, not just Channels ──
+//
+// The first cut of W0.2 converted the Channels tab and nothing else, and 661
+// tests passed anyway — because every units test rendered ChannelsTab in
+// isolation. The claim was "every number on screen follows"; the coverage was
+// one tab. These render the WHOLE REPORT through the real provider and read the
+// numbers a driver actually looks at.
+describe('the unit toggle reaches the whole session view', () => {
+  beforeEach(() => { getSessionTrace.mockResolvedValue(TRACE) })
+
+  async function renderImperial() {
+    render(
+      <UnitsProvider>
+        <UnitToggle />
+        <SessionReport sessionId="cur" sessions={[SESSION]} onBack={() => {}} />
+      </UnitsProvider>,
+    )
+    expect((await screen.findAllByText(/COTA/i)).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'IMP' }))
+  }
+
+  it('converts the SUMMARY stat cells', async () => {
+    await renderImperial()
+    // 5.42 km = 3.37 mi. The circuit length was rendering as a pre-rounded
+    // STRING, so the atom had no number left to convert.
+    expect(screen.getByText('3.37')).toBeInTheDocument()
+    expect(screen.getByText(/^mi$/)).toBeInTheDocument()
+    expect(screen.queryByText(/^km$/)).toBeNull()
+  })
+
+  it('converts the PERFORMANCE card and its speed-band labels', async () => {
+    await renderImperial()
+    await userEvent.click(screen.getByRole('button', { name: 'Performance' }))
+    // Top speed 180 km/h = 111.8 mph.
+    expect(screen.getByText('111.8')).toBeInTheDocument()
+    // The band EDGES stay canonical km/h — only their labels convert, so the
+    // same lap reports the same share whichever system is selected.
+    expect(screen.getByText(/Low \(< 62\.1 mph\)/)).toBeInTheDocument()
+    expect(screen.queryByText(/100 km\/h/)).toBeNull()
+  })
+
+  it('converts the INSTRUMENTS gauges', async () => {
+    await renderImperial()
+    await userEvent.click(screen.getByRole('button', { name: 'Instruments' }))
+    expect(screen.getAllByText('MPH').length).toBeGreaterThan(0)
+    expect(screen.queryByText('KM/H')).toBeNull()
+    // RPM is dimensionless and must NOT change.
+    expect(screen.getAllByText('RPM').length).toBeGreaterThan(0)
+  })
+
+  it('converts the TRACK MAP panel readouts', async () => {
+    await renderImperial()
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    expect(screen.getAllByText('MPH').length).toBeGreaterThan(0)
+    // Distance along the lap is metres in SI, feet in imperial.
+    expect(screen.getAllByText(/^ft$/).length).toBeGreaterThan(0)
+  })
+
+  it('is REVERSIBLE across the whole report, not just the tab that was open', async () => {
+    await renderImperial()
+    await userEvent.click(screen.getByRole('button', { name: 'SI' }))
+    expect(screen.getByText('5.42')).toBeInTheDocument()
+    expect(screen.queryByText(/^mi$/)).toBeNull()
+  })
+})
+
+// ── Reported 28 Aug: "difficult to pick a location on the map" ──
+//
+// Hovering cannot express "this one", because the pointer must always leave the
+// corner to reach the note box — and on the way out it crossed the rest of the
+// circuit, re-pointing the note each time. Click is the commitment; hover stays
+// a preview.
+describe('picking a note location on the map', () => {
+  // jsdom reports a zero-size box for every element, so the map's click-to-
+  // trace-point projection divides by zero and resolves nothing. Give the SVG
+  // a real box for these two tests — without it the click is a no-op and the
+  // test would pass or fail for reasons unrelated to the behaviour.
+  let rect
+  beforeEach(() => {
+    getSessionTrace.mockResolvedValue(TRACE_WITH_CORNERS)
+    rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 1200, height: 2065, right: 1200, bottom: 2065, x: 0, y: 0,
+    })
+  })
+  afterEach(() => rect.mockRestore())
+
+  it('CLICKING THE MAP pins the note anchor, and hovering elsewhere no longer moves it', async () => {
+    render(<SessionReport sessionId="cur" sessions={[SESSION]} onBack={() => {}} />)
+    expect((await screen.findAllByText(/COTA/i)).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+
+    const map = screen.getByRole('img', { name: 'Track map' })
+    // jsdom gives every element a zero-size box, so the projected click always
+    // resolves to the same trace point. That is enough: the assertion is that a
+    // click PINS at all, and that a later hover cannot move it.
+    await userEvent.click(map)
+    expect(screen.getByText(/pinned at/i)).toBeInTheDocument()
+
+    await userEvent.hover(map)
+    expect(screen.getByText(/pinned at/i)).toBeInTheDocument()
+  })
+
+  it('offers a way to unpin, so a mis-click is not a dead end', async () => {
+    render(<SessionReport sessionId="cur" sessions={[SESSION]} onBack={() => {}} />)
+    expect((await screen.findAllByText(/COTA/i)).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    await userEvent.click(screen.getByRole('img', { name: 'Track map' }))
+    await userEvent.click(screen.getByRole('button', { name: /move to cursor/i }))
+    expect(screen.queryByText(/pinned at/i)).toBeNull()
+  })
+
+  it('LETS YOU ACTUALLY SAVE a note on a pinned corner', async () => {
+    // Reported 28 Aug with a screenshot: T20 pinned, text typed, Save still
+    // disabled. The corner path had NEVER worked — `cornersFromPersisted` and
+    // `detectCorners` both convert distance fractions into INDICES and drop
+    // `dStart`/`d`/`dEnd`, so `anchorFromCorner` returned null for every real
+    // corner and `canSave` required a non-null anchor.
+    //
+    // Every existing notes test fed hand-written corners in the PERSISTED shape
+    // (which carries the fractions), never the RESOLVED shape the component is
+    // actually handed. A20, again: the test's world was one size different from
+    // the feature's.
+    render(<SessionReport sessionId="cur" sessions={[SESSION]} onBack={() => {}} />)
+    expect((await screen.findAllByText(/COTA/i)).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+    await userEvent.click(screen.getByRole('button', { name: /Note corner 2/i }))
+
+    await userEvent.type(screen.getByRole('textbox'), 'Kerb takes it.')
+    const save = screen.getByRole('button', { name: 'Save note' })
+    expect(save).toBeEnabled()
+
+    await userEvent.click(save)
+    expect(saveNote).toHaveBeenCalledTimes(1)
+    const arg = saveNote.mock.calls[0][0]
+    expect(arg.cornerLabel).toBe('T2')
+    // A real span on the lap, not a null the button silently refused.
+    expect(Number.isFinite(arg.anchor.dStart)).toBe(true)
+    expect(Number.isFinite(arg.anchor.dEnd)).toBe(true)
+    expect(arg.anchor.dStart).toBeLessThanOrEqual(arg.anchor.dEnd)
+  })
+
+  it('CLICKING A CORNER BADGE pins that turn, which was the one place picking failed', async () => {
+    // Reported: "able to save a note at pinned locations everywhere but at the
+    // actual labelled Turn". The badge hangs off the racing line on a leader,
+    // so its click fell through to the nearest-trace-point handler and landed
+    // somewhere else. Now it pins by the corner's own identity.
+    render(<SessionReport sessionId="cur" sessions={[SESSION]} onBack={() => {}} />)
+    expect((await screen.findAllByText(/COTA/i)).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Track Map' }))
+
+    await userEvent.click(screen.getByRole('button', { name: /Note corner 2/i }))
+    expect(screen.getByText(/pinned at T2/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/NOTE THIS PLACE — T2/)).toBeInTheDocument()
   })
 })

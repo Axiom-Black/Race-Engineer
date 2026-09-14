@@ -6,7 +6,7 @@
 // one channel meant scrolling past everything else. It is now its own tab
 // (Channels), which is what makes searching worth having.
 //
-import { strictNum } from './num.js'
+import { convert, DEFAULT_SYSTEM } from './units.js'
 
 // Logic lives here rather than in the component so that "does the filter
 // actually find Brake Temp RL" is answerable without a DOM.
@@ -61,13 +61,17 @@ export function channelStats(channels) {
  * real but meaningless, and printing it invites a driver to read a measurement
  * where there is none (WORKING_PLAN §4 — flagged, never hidden).
  */
-export function formatRange(c) {
+export function formatRange(c, system = DEFAULT_SYSTEM) {
   if (!c || c.allZero) return null
-  const min = strictNum(c.min)
-  const max = strictNum(c.max)
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return null
-  const unit = c.unit ? ` ${c.unit}` : ''
-  return `${min.toFixed(2)} … ${max.toFixed(2)}${unit}`
+  const lo = convert(c.min, c.unit, system)
+  const hi = convert(c.max, c.unit, system)
+  if (lo.value === null || hi.value === null) return null
+  // The channel's OWN unit drives the conversion, so the whole 70-channel
+  // inventory follows the preference without a per-field mapping — and a unit
+  // we do not know passes through in SI rather than being silently mis-scaled.
+  const dp = Math.max(lo.dp, 2)
+  const unit = lo.unit ? ` ${lo.unit}` : ''
+  return `${lo.value.toFixed(dp)} … ${hi.value.toFixed(dp)}${unit}`
 }
 
 /** Logging rate as displayed, or null when the export did not record one. */

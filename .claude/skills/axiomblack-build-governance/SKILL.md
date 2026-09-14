@@ -71,6 +71,12 @@ the operational part — it is what an agent or a human actually does differentl
 - **Forces:** Sequence work so it moves without stalls, handoff gaps, or blocking dependencies; a
   blocker is surfaced and cleared, never worked around silently. Recurring work is captured as
   standard, reusable procedure (a template, a checklist, a gate) so it is not reinvented each time.
+- **Standard work for sequencing:** the **80/20 Prioritization Matrix** is the org's standing gate for
+  what moves first. Score each candidate on **potential impact** and **feasibility**, then act on the
+  quadrant: *Do it now!* (high impact, high feasibility) · *Start planning now* (high impact, low
+  feasibility — the blocker is named and worked, not parked) · *Quick wins* (low impact, high
+  feasibility — filler, never a queue-jumper) · *Review only if you have time* (low, low).
+  Low feasibility is a **blocker to clear**, not a reason to skip the item.
 
 ## 4 — Establish Pull
 *Make products or services only when the customer asks for them.*
@@ -78,6 +84,10 @@ the operational part — it is what an agent or a human actually does differentl
 - **Forces:** Build backlog items only when they are pulled into active work by real, present demand —
   not on speculation about future need. The backlog is parked until pulled; scope is added by demand,
   not by anticipation. Do not build ahead of the pull signal.
+- **Ordering what has been pulled:** demand decides *whether*; the 80/20 Prioritization Matrix
+  (Principle 3) decides *in what order*. Rank pulled items by impact × feasibility and state each
+  item's quadrant when it enters active work. Impact outranks feasibility: an easy low-impact item
+  never goes ahead of a hard high-impact one — it waits, or it fills a gap while the hard one unblocks.
 
 ## 5 — Pursue Perfection
 *Keep improving the system over and over to remove all waste.*
@@ -99,6 +109,7 @@ Read the matching entry in `references/commentary.md` when:
 - You suspect a step is busywork but are not sure how to judge it → **Principle 2**
 - Work keeps stalling, blocking, or waiting on handoffs → **Principle 3**
 - You are about to write a reusable template, checklist, or gate → **Principle 3 (standard work)**
+- You are scoring or ordering candidates and want the quadrants spelled out → **Principle 3 (the matrix)**
 - You are tempted to build something because it "will be needed later" → **Principle 4**
 - You are prioritizing a backlog or deciding what is next → **Principle 4**
 - You are closing out a cycle, retro, or release → **Principle 5**

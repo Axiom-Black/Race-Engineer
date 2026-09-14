@@ -14,6 +14,7 @@
 // which is that LMU's GTE export carries the channel and never fills it.
 import { useMemo, useState } from 'react'
 import { C, font } from '../theme'
+import { useUnits } from '../lib/useUnits'
 import { domainsOf, filterChannels, channelStats, formatRange, formatRate } from '../lib/channels'
 
 const DOMAIN_COLOR = {
@@ -36,6 +37,7 @@ function Badge({ kind, children }) {
 }
 
 export default function ChannelsTab({ channels }) {
+  const { system } = useUnits()
   const [domain, setDomain] = useState('All')
   const [query, setQuery] = useState('')
 
@@ -113,7 +115,7 @@ export default function ChannelsTab({ channels }) {
       ) : (
         <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: 'hidden' }}>
           {shown.map((c) => {
-            const range = formatRange(c)
+            const range = formatRange(c, system)
             const rate = formatRate(c)
             return (
               <div

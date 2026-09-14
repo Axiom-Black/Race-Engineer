@@ -343,6 +343,124 @@ report it as progress. *Codex II.1, IV.3.*
 
 ---
 
+### A19 · A test that passes when you break the code is not a test — break it and watch
+
+Writing the assertion is the easy half. Two probes in the Track Notes work
+passed a deliberately sabotaged implementation, and both were *carefully
+written*, *well named* and *wrong*:
+
+- **"Prefers the same car over a newer note"** — the two fixtures also differed
+  in temperature, and the closest-conditions term picked the right answer on its
+  own. Delete the car preference entirely and the test still passed. Fixed by
+  making the conditions **identical**, so only the property under test can
+  decide.
+- **"Cannot drift one stack down a straight"** — the fixture spaced notes at 90%
+  of the grouping tolerance, and at that spacing a mean-anchored implementation
+  also splits. Fixed by spacing them at **30%**, where a lagging mean keeps
+  accepting notes and the stack's span visibly exceeds the tolerance.
+
+The pattern in both: **the test was satisfied by a mechanism other than the one
+it named.** A green test proves *something* is producing the expected output; it
+does not prove the thing you meant. And the failure is invisible from the test's
+own text — both read as good tests.
+
+So the procedure is not "write a test" but **"write a test, then break the line
+it defends and confirm it goes red."** Seven breaks were run in this session;
+five bit immediately, two exposed toothless probes. That ratio is the argument:
+without the breaks, roughly a third of the suite's most load-bearing claims
+would have been decoration.
+
+Two shortcuts that keep it cheap: `perl -0pi -e` the single expression rather
+than hand-editing (and `cp` the file first — restoring must be trivial or you
+will skip the check), and prefer a break that makes the *wrong* thing plausible
+— "recency instead of relevance", "running mean instead of first member" — over
+a break that makes the code obviously broken. A test that only catches `return
+null` catches nothing worth catching. *Codex III.2, IV.3.*
+
+---
+
+---
+
+### A20 · Ask what the SMALLEST WORLD is in which your test passes
+
+A19 says break the code and watch the test go red. This is its companion, and
+it catches a class A19 cannot: tests that are **correct, meaningful, and
+verifying a smaller world than the claim they are taken to support.**
+
+Three defects reached a live app in one afternoon, all three behind a green
+suite of 661 tests:
+
+| Claim in the commit | World the tests actually covered |
+| --- | --- |
+| "every number on screen follows the toggle" | one tab, rendered in isolation |
+| "a note lands where the driver put it" | one **static** anchor — no test moved the pointer |
+| "click the map to pick a place" | clicks resolved by geometry that **cannot fail loudly** |
+
+Every one of those tests would go red if you broke the thing it named. They had
+teeth. They were simply pointed at a world one size smaller than the feature
+lived in — and nothing in the process compared the two.
+
+**The check is one question, asked after the test is written:** *what is the
+smallest world in which this passes?* Then compare that to the sentence you are
+about to put in the commit message. If the sentence is bigger, either shrink the
+sentence or grow the test. In all three cases here a single integration test —
+click the real control on the real screen — would have caught what dozens of
+unit tests did not.
+
+Two specific smells this surfaces, both worth checking by name:
+
+- **A component rendered in isolation cannot verify a claim about a screen.**
+  Isolation is what makes a unit test fast and precise; it is also what makes it
+  silent about everything outside the component.
+- **A helper with no failure mode will answer anything you ask it.**
+  `nearestPointIndex` has no distance threshold, so a click 54 px off the track
+  returned a confident, plausible, wrong answer. When a function cannot say "I
+  don't know", every test of it passes and every *use* of it is a guess. Ask
+  what a helper does at the edge of its competence before trusting it in a
+  click handler. *Codex III.2, IV.1.*
+
+---
+
+---
+
+### A21 · Re-check a capability you believe you lack — the belief constrains silently
+
+Twice in one day I told the owner this environment had "the Postgres client
+only, no server", and used that to justify shipping SQL unverified. It was
+never true. `psql` was on `PATH` and `postgres`, `initdb` and `pg_ctl` were
+sitting in `/usr/lib/postgresql/16/bin` the whole time. One bad `which` check,
+repeated as fact, then quoted as a constraint.
+
+The cost was not the wrong sentence. It was:
+
+- A migration merged with its SQL unexercised (PR #51), justified in the commit
+  message by the absent tooling.
+- A second migration that went red in CI on a defect reproducible locally in
+  about sixty seconds — and whose root cause (a `language sql` body is validated
+  at CREATE time) would have been caught the moment it ran anywhere real.
+
+**A missing tool announces itself; a wrongly-assumed-missing tool does not.**
+When a tool is genuinely absent you hit an error, and the error corrects you. A
+false belief that you lack something produces no error at all — it quietly
+removes an option from consideration, and every downstream decision looks
+reasonable given the premise. The belief is never re-examined because nothing
+ever contradicts it.
+
+So: **when a capability's absence is about to change what you ship — skip a
+verification, pick a weaker design, hand work back to the user — re-check it
+right then.** Not "I recall it isn't available", but run the check again. The
+moment a limitation starts doing work in an argument is the moment it needs
+evidence. And prefer a check that would fail loudly: `ls` the expected path
+rather than `which`, try the thing rather than asking about it.
+
+The generalisation beyond tooling: any premise load-bearing enough to justify
+lowering your standard deserves one fresh look before it is allowed to. That is
+the same instinct as A18 (measure the tolerance rather than trusting the
+answer), pointed at your own assumptions rather than at the code's.
+*Codex I.2, IV.3.*
+
+---
+
 ---
 
 ## Part B — Session trail (newest first)
@@ -351,6 +469,13 @@ Each entry: date · what shipped · the method insight worth carrying forward.
 
 | Date | Shipped | Method insight |
 | --- | --- | --- |
+| 14 Sep 2026 | Production migration push executed as a ledger repair; drift detector armed and verified OK | **"Deploy the missing thing" is a guess about state. Read the state first, because "missing" is only one of the ways a database disagrees with a repo.** Three different disagreements were live at once here and exactly one was an absence: a table applied by hand and unrecorded, two migrations recorded under timestamps that did not match the repo's filenames, and one genuinely absent function. A `db push` addresses only the third and would have errored on the first. **The general habit: before applying anything, ask separately whether the OBJECT exists and whether the RECORD exists — they are independent, and every combination of the two needs a different action.** Present-and-recorded is a no-op, absent-and-unrecorded is an apply, and present-but-unrecorded is a *bookkeeping* fix that must never be "solved" by re-running the DDL. **Second, the sharpest one: the tool that fixes drift can create it.** `apply_migration` stamps its own timestamp, so applying the repo's `20260828150000` recorded it as `20260914190138` — leaving the detector reporting one version missing and another unexpected, a fault invented entirely by the act of repair. Any time a tool assigns an identifier that something downstream compares against a file you control, check what it actually wrote rather than what you asked for. **Third, on verifying a diagnostic rather than trusting it: run the product's own comparison against the real data.** Rather than eyeballing two lists, the live ledger contents were fed to the app's `compareMigrations` alongside the real migrations directory — OK, nothing missing, nothing extra, message null. **A silent banner and an inert banner look identical**, which is exactly why the UNKNOWN state exists, and the only way to tell them apart is to make the check answer a question you already know the answer to. **Fourth, prefer `update` to delete-and-insert when repairing a ledger** — the rows carry the SQL that actually ran, and recreating them would trade real history for a tidier-looking one. |
+| 3 Sep 2026 | Spec-driven development adopted (`docs/spec-driven-development.md`); note visibility unified behind one rule (spec 001) | **When one feature behaves two ways, check whether you have two rules of different KINDS before tuning either.** Corner notes were selected by cursor position; trace notes were not selected at all. Read as "one is too tight and the other too loose", the fix is a threshold; read correctly, the fix is deleting one of the rules. **The tell was in the data shape, not the UI:** a helper returned a Map keyed by corner number *plus* a leftover array, and the component let that split decide what a user saw. **Any time a function hands back two collections with different shapes, ask whether the difference is a real distinction or an implementation detail about to become a feature** — here corner attachment was a *label*, so it became an attribute of one list and the second rule vanished with the second collection. **Second, the reusable test of a good seam: the new capability should need no new code.** "Show the note as the replay passes it" required nothing, because hover and the transport already drove the same cursor. When a requirement lands for free, the abstraction was right; when it needs a parallel path, that is the signal to move the seam rather than add the path. **Third, on adopting an outside method: take the discipline, refuse the second constitution.** Spec Kit's workflow (spec → plan → tasks, in order, before code) is substance and went in; its CLI scaffolds a rules file into a repo that already had three layers of governing standards, and **the losing copy of a duplicated rule is whichever one an agent reads first** — an unknowable, so the duplicate is the defect. The one genuine gap the method closed was **non-goals**: acceptance criteria we already had, but never the boundary, and an agent given no boundary overbuilds reliably (four unasked features were blocked in writing before any code). **Also worth keeping: leave the spec's mistakes in the spec.** Its "all existing tests pass unchanged" was wrong (one had pinned the behaviour being removed) and its planned prop was dead on arrival (lint caught it). A spec is a decision record; being able to see where it was wrong is the entire return on writing it first. |
+| 2 Sep 2026 | 80/20 Prioritization Matrix adopted as standard work — Build Governance v1.1 (Create Flow + Establish Pull), replacing §1.3's ROI grid | **Feasibility, not cost, is the right second axis for a triage grid — and the difference is not academic.** The old grid ranked *value × cost*, and cost measures effort: the units work had effort in abundance and spent it converting one tab of five, while D3 was cheap and simply not measurable yet because two of its four surfaces did not exist. **Feasibility measures readiness** — evidence in hand, dependencies resolved, unknowns closed — and both of this repo's recent sequencing failures were readiness failures that a cost axis cannot see. **The reusable habit: when a prioritization grid keeps admitting work that later needs redoing, suspect the axes before the scoring.** A grid with the wrong axes still produces confident rankings, which is what makes it durable. **Second, on where a rule of this kind lives.** It went into the governance skill via that skill's own amendment protocol — trigger with evidence, edited forced decision, Commentary, ledger row, version bump — and the tracker now *points at* it rather than restating it. Two copies of a rule is one copy plus a future contradiction; the tracker's job is to say which standard is in force, not to paraphrase it. **Third, on what the trigger has to be.** The amendment protocol says "no trigger, no amendment", and the trigger here was our own record: seven PRs in a day, four of them fixes to work already called done. **A standard amended from a good idea drifts; a standard amended from a scar keeps its reasons** — and the ledger entry is written so a later reader can judge whether the reason still holds. |
+| 28 Aug 2026 | Migration drift merged (#55); Ring 3 red then green; the "no local Postgres" claim found to be false | **Re-check a capability you believe you lack — the belief constrains silently.** Full pattern in **A21**. A missing tool announces itself with an error; a wrongly-assumed-missing one produces no error at all, quietly removes an option, and is never re-examined because nothing contradicts it. It cost one migration shipped unverified and one CI failure reproducible locally in a minute. **The second lesson is about fixing the right layer.** Ring 3 went red because a `language sql` body is validated at CREATE time, so the function failed on a schema the test file created *after* the migrations. Correcting the ordering alone would have gone green and left the real defect in place: the same migration would have failed against a production project that had never run `supabase db push`, because Supabase creates the ledger on first push. **When CI catches something, ask whether the gate found the defect or merely one instance of it** — the fix that only satisfies the gate is the one that ships the bug. Here the honest fix changed the function's language and made an absent ledger raise, which the client maps to UNKNOWN rather than to "everything is missing". |
+| 28 Aug 2026 | Migration-drift detection (option C): the bundle carries its migration list and reports what the database is missing | **When a gate constructs its own copy of the thing it validates, name the real artefact it is not looking at.** Ring 3 applies every migration to a throwaway Postgres and asserts against it — which proves the files are self-consistent and is structurally incapable of noticing that production never received them. That is not a bug in the gate; it is the gate's shape. The general habit: for each gate, ask *what does this build for itself, and what does it therefore never see?* **Second, on choosing the weaker option on purpose.** The complete fix was `supabase db push` in CI; it was rejected because it buys automation with the first production schema-write credential in the repo, inherited by every workflow run. Detection costs no secret, generalises to every future migration, and fails in the right direction — you learn before hitting the feature instead of after. **A capability you decline is worth logging with its price, so the next person can re-decide rather than re-derive.** Also rejected outright, and worth naming: a release-checklist item, which is *the appearance of a control without the substance* — the failure had already happened to someone who had written the instruction down. **Third, the reusable UI rule: a diagnostic must have an "I don't know" state, and it must render as silence rather than as reassurance.** An UNKNOWN that displays as OK is the exact false comfort the green gates gave. And a diagnostic that sits above the whole app must be allow-listed into rendering, never excluded from it — an unrecognised status reaching `result.missing.map` crashed the page, which is a worse outcome than the drift it was reporting. |
+| 28 Aug 2026 | Week 0 merged (#51/#52/#53); three post-merge defects fixed; `track_notes` applied to production, RLS verified | **Ask what the smallest world is in which your test passes.** Full pattern in **A20** — three defects shipped behind 661 green tests, each test correct and each pointed at a world one size smaller than the claim it was taken to support. **The second lesson is about deployment, and it is the more expensive one: CI proving a migration is not the same as the migration being applied.** Ring 3 builds its own Postgres from the same files it is testing, so it is structurally incapable of noticing that production never got them — the gates were green while the feature was broken for the only user. Anywhere a gate constructs its own copy of the thing it validates, ask what real artefact it is *not* looking at. **Third, smaller but reusable: a helper that cannot say "I don't know" will answer anything.** `nearestPointIndex` has no distance threshold, so a click on a label 54 px off the racing line returned a confident wrong point — and the corner a driver was pointing at became the one corner they could not select. Before wiring a lookup into a click handler, ask what it does at the edge of its competence; "always returns the nearest" is a different contract from "returns the thing you clicked". **Also worth carrying: my first fix for the notes bug was wrong, and a PRE-EXISTING test caught it.** I had defined "unsaved work" as "the box has text", which froze boxes merely prefilled from a saved note. The regression suite earning its keep against the person who wrote it is the argument for keeping old assertions when they seem to be in the way. |
+| 26 Aug 2026 | Week 0 closed — W0.1 build marker, W0.2 imperial ↔ SI, W0.3 Track Notes (schema + RLS + logic + UI); LMU roster inventory filled | **Break the code and watch the test go red, or you do not know whether you wrote a test.** Full pattern in **A19** — two carefully written, well-named probes passed a deliberately sabotaged implementation, and their text gave no hint of it. **The design lesson of the session is a storage one, and it appeared three times in three different guises:** units convert only at the *display edge* because converting at ingest makes two drivers' archives numerically incompatible; notes anchor to a *distance span* rather than a corner number because numbering is ours and moved twice in three days; and a note's provenance is a *copy* of the session's identity rather than a join, because a join is unreadable in exactly the case the design exists for. Same rule each time: **store the invariant, derive the convenience.** The tell for which is which is to ask what happens when the other thing changes — the driver's preference, the detector's output, the session's existence — and whichever survives that is what belongs on disk. **A constraint worth carrying:** `session_key` is stored as text *beside* the nullable foreign key it duplicates, which looks redundant until you notice SQL NULLs compare as **distinct** — a unique key over a nullable column silently stops constraining anything the moment that column nulls. That failure mode is invisible in review and invisible in a passing suite; the only thing that catches it is an acceptance check that deletes the parent row and *then* tries the duplicate. **And on blockers that turn out to be smaller than they look:** the track roster had no reachable source for its numeric columns, which read as a hard blocker until noticing that length, longest straight and corner count are all *measured at upload* — so the table fills itself as the work proceeds and only the one genuinely external figure (official corner count) needs anybody. Before escalating a missing input, check how much of it your own pipeline already produces. |
 | 26 Aug 2026 | Corner detection re-scaled off the lap's own typical corner (27× input tolerance, was ±12%) | **Measure the tolerance, not the answer — and let the sweep refute your hypothesis.** Full pattern in **A18**. The second lesson is a support one that is really a product one: the reported defect (14 corners instead of 20) was not a defect at all — it was a session parsed by an older bundle, because parsing is client-side and derived data is written at upload. Diagnosing it took three exchanges and was only settled by noticing the uploaded session's channel summary was *numerically identical* to the committed fixture's, which proved it was the same export and therefore that the detector was not the variable. **When derived data is computed at write time, a stale record is indistinguishable from a broken feature** — and nothing in the UI named the build that produced either the page or the record. The cheap fix (a build marker) and the real fix (backfill from the raw files already in Storage) are both now the top blocker, because the next occurrence costs the same three exchanges. **A smaller habit worth keeping:** the fastest way to identify what a user is looking at was to compare a summary statistic of their data against a known artifact. Channel min/max is free, carries no PII, and uniquely identified the file. |
 | 26 Aug 2026 | Corner detection moved to ingest, on full-rate lateral G: 20/20 at COTA on every lap | **The ceiling was the channel, not the algorithm.** Full pattern in **A17**. The session's second lesson is about the difference between a target and a criterion: the ask was "get all 20", and it is trivially possible to reach 20 on one circuit by tuning until the count matches — which would have shipped a detector that fails on the first track nobody here has driven. What made the result trustworthy was refusing to accept any setting that was not (a) a *plateau*, with two parameters varying across a range without changing the answer, (b) *repeatable* on four independent laps, and (c) built from **dimensionless** thresholds, so a test can prove the same lap at half the grip and double the sample rate returns the same corners. The number and the confidence came from the same discipline. **Also worth carrying:** normalising a measurement per-lap felt natural and was wrong — the yardstick (lateral capability) belongs to the car and the circuit, so a lap where the driver never pushed re-scaled its own noise into signal. When you divide by something, ask what population that something should be measured over; "the thing in front of me" is a default, not an answer. |
 | 26 Aug 2026 | Readability programme closed: adaptive trace resolution, map transport + panel, Progression rework, Engineering Run readiness, run averages | **Fix the allocation before you buy more capacity — and then go and check what depended on the old shape.** Full pattern in **A16**. The session's other reusable lesson is about *labels on borrowed layouts*: three of these five views were ported from prototypes that show figures we cannot compute. The prototype's Progression column says GAP TO IDEAL against a curated reference-lap library that does not exist, and its Engineering Run fills metric boxes with "— TBD". Copying either verbatim ships a claim about data you do not have; deleting them loses the layout. **What worked was keeping the layout and changing the measurement to one that is real** — gap to *your own* best, and per-agent *input readiness* instead of per-agent output — then pinning the honest label with a test that asserts the prototype's wording is **absent**, so it cannot drift back in when the file is next touched. **The Engineering Run version is worth its own note:** the prototype's TBD boxes were honest and worth nothing. Asking "what is the one real question this surface can answer today?" produced a better feature than either shipping the fake or shipping nothing — LMU ships GTE cars with several channels permanently empty, so telling a driver *now* which agents their export can feed is payable, needs no backend, and is something only we can answer. **Also, again:** two real defects this session were found by rendering and looking, not by 500 tests — an off-by-one in cumulative distance that was invisible while a derived field masked it, and a reconciled/unreconciled lap-time contradiction on one screen (that one *was* caught, by an existing test whose assertion then got **stronger**, not relaxed, to accommodate the new view). |

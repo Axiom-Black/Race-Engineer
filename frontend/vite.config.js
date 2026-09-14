@@ -1,4 +1,6 @@
 import { execSync } from 'node:child_process'
+import { readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -21,6 +23,33 @@ function resolveCommitSha() {
       .trim()
   } catch {
     return 'unknown'
+  }
+}
+
+/**
+ * The migration versions THIS BUNDLE expects the database to have.
+ *
+ * Read from supabase/migrations/ at build time and inlined, exactly like the
+ * commit SHA above — so the bundle carries a record of the schema it was built
+ * against, and can say at runtime whether the database it is talking to has
+ * caught up. See src/lib/migrations.js for why that question needed answering.
+ *
+ * Filenames are the source of truth (CONTRIBUTING: migration filenames are
+ * load-bearing and an applied one is never renamed), and the leading timestamp
+ * is the version Supabase records in its ledger.
+ *
+ * Never throws. A missing directory yields an empty list, which the drift check
+ * reads as "nothing to compare" and stays silent about — a build must not fail,
+ * and a diagnostic must not invent a problem, because the migrations folder
+ * could not be read.
+ */
+function resolveMigrations() {
+  try {
+    return readdirSync(resolve(process.cwd(), '../supabase/migrations'))
+      .filter((f) => f.endsWith('.sql'))
+      .sort()
+  } catch {
+    return []
   }
 }
 
@@ -85,6 +114,7 @@ export default defineConfig({
   define: {
     __BUILD_SHA__: JSON.stringify(resolveCommitSha()),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __MIGRATIONS__: JSON.stringify(resolveMigrations()),
   },
 
   // TEST ENVIRONMENT — deliberately 'node' by default.

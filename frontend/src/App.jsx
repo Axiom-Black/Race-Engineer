@@ -2,6 +2,7 @@
 // app shell, everyone else gets the sign-in / sign-up screen. Replaces the S4
 // smoke screen; the onboarding spine (S5 front half) starts here.
 import { AuthProvider, useAuth } from './lib/auth'
+import { UnitsProvider } from './lib/unitsContext'
 import { C, font } from './theme'
 import AuthScreen from './components/AuthScreen'
 import AppShell from './components/AppShell'
@@ -35,7 +36,9 @@ function Gate() {
 export default function App() {
   return (
     <AuthProvider>
-      <Gate />
+      <UnitsProvider>
+        <Gate />
+      </UnitsProvider>
     </AuthProvider>
   )
 }

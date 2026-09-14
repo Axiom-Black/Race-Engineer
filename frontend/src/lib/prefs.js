@@ -25,6 +25,7 @@
 // Thresholds are domain values, not a storage concern — they live with the
 // rollup that interprets them, and this module only persists them.
 import { DEFAULT_TIERS } from './progression.js'
+import { coerceSystem, DEFAULT_SYSTEM } from './units.js'
 
 const TIER_KEYS = ['elite', 'competitive', 'developing']
 // Versioned: v1 stored thresholds in SECONDS. They are a percentage of the
@@ -127,4 +128,44 @@ export function isDemoDismissed(userId) {
 /** Record that the demo was deleted, so it is not seeded again. */
 export function markDemoDismissed(userId) {
   return safeSet(demoKeyFor(userId), '1')
+}
+
+// ---------------------------------------------------------------------------
+// Unit system (imperial / SI)
+//
+// Same storage decision as the tiers, and for the same reason: this changes how
+// a number is RENDERED, never what is stored. Canonical SI stays in the
+// database (see lib/units.js), so a preference change is a re-render and cannot
+// corrupt anything.
+//
+// THE LIMITATION IS DELIBERATE, AND IS ITSELF UNDER TEST. Like the tiers, this
+// is per browser rather than per account — namespaced by user id, so two drivers
+// sharing a browser do not inherit each other's choice, but a driver signing in
+// on a second device silently gets the default back.
+//
+// A `user_preferences` table would fix that and cost a migration, an RLS policy
+// and an owner-side apply. It is deliberately NOT built yet: Iteration 5's D3
+// probe asks "did the change stick across sign-out and another device?", and
+// building the table first would answer that question by assumption instead of
+// by measurement. If the test says it matters, this module is the single seam to
+// swap — every caller goes through loadUnits/saveUnits.
+
+const UNITS_NS = 'bytecraft.units'
+
+function unitsKeyFor(userId) {
+  return `${UNITS_NS}.${userId || 'anon'}`
+}
+
+/** This driver's unit system, or the default. Never throws. */
+export function loadUnits(userId) {
+  return coerceSystem(safeGet(unitsKeyFor(userId)) ?? DEFAULT_SYSTEM)
+}
+
+/**
+ * Persist this driver's unit system. Returns whether the write landed, so the
+ * caller can tell "saved" from "storage unavailable" rather than claiming a
+ * save that did not happen.
+ */
+export function saveUnits(userId, system) {
+  return safeSet(unitsKeyFor(userId), coerceSystem(system))
 }

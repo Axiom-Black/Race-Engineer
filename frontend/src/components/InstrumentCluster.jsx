@@ -13,6 +13,7 @@
 // track explains. Two sets of dials that looked almost the same would be worse
 // than one set used twice.
 import { C, font } from '../theme'
+import { useUnits } from '../lib/useUnits'
 import {
   gaugeFraction, arcPath, polar, gearLabel, slipSeverity, gCrossPosition,
 } from '../lib/gauges'
@@ -20,10 +21,21 @@ import {
 const SWEEP_START = -135
 const SWEEP_END = 135
 
+/**
+ * A radial gauge.
+ *
+ * `unit` is the CANONICAL SI unit ('km/h', 'rpm') and is displayed uppercased,
+ * so the conversion table can key on it. The needle fraction stays in SI:
+ * `value` and `max` are both stored units, and for the linear quantities a
+ * gauge shows, the ratio is identical after conversion — converting both would
+ * be work that moved nothing.
+ */
 export function RadialGauge({ value, max, label, unit, color, size = 118 }) {
+  const { format } = useUnits()
   const r = size / 2 - 9
   const c = size / 2
   const f = gaugeFraction(value, max)
+  const shown = unit ? format(value, unit, 0) : null
   const track = arcPath(c, c, r, SWEEP_START, SWEEP_END, 1)
   const fill = arcPath(c, c, r, SWEEP_START, SWEEP_END, f ?? 0)
   const tip = f === null ? null : polar(c, c, r, SWEEP_START + (SWEEP_END - SWEEP_START) * f)
@@ -38,13 +50,13 @@ export function RadialGauge({ value, max, label, unit, color, size = 118 }) {
           x={c} y={c + 2} textAnchor="middle"
           style={{ fontFamily: font.mono, fontSize: 21, fontWeight: 800, fill: f === null ? C.dim : C.silver3 }}
         >
-          {f === null ? '—' : Math.round(Number(value))}
+          {f === null ? '—' : (shown ? shown.text : Math.round(Number(value)))}
         </text>
         <text
           x={c} y={c + 18} textAnchor="middle"
           style={{ fontFamily: font.ui, fontSize: 8.5, letterSpacing: 1.2, fill: C.dim }}
         >
-          {unit}
+          {(shown ? shown.unit : unit).toUpperCase()}
         </text>
       </svg>
       <span style={{ fontSize: 9, letterSpacing: 1.2, color: C.dim, fontWeight: 700 }}>{label}</span>
@@ -152,7 +164,7 @@ export default function InstrumentCluster({ point, maxSpeed = 260, maxRpm = 8000
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-        <RadialGauge value={point.s} max={maxSpeed} label="SPEED" unit="KM/H" color={C.pink} />
+        <RadialGauge value={point.s} max={maxSpeed} label="SPEED" unit="km/h" color={C.pink} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.panel2, borderRadius: 8, padding: '3px 13px' }}>
           <span style={{ fontSize: 8.5, color: C.dim, letterSpacing: 1.2, fontWeight: 700 }}>GEAR</span>
           <span style={{ fontSize: 19, fontWeight: 900, color: C.blue, fontFamily: font.mono }}>
@@ -165,7 +177,7 @@ export default function InstrumentCluster({ point, maxSpeed = 260, maxRpm = 8000
         value={point.r}
         max={maxRpm}
         label="ENGINE"
-        unit="RPM"
+        unit="rpm"
         // Shift light: the cluster's one piece of judgement, and it is a fact
         // about the engine rather than about the driving.
         color={overRedline ? C.danger : C.warn}

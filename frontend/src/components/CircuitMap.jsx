@@ -17,7 +17,7 @@ const CHIP_H = 28
 const BADGE_R = 14
 const LEADER = 54
 
-export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: given, activeCorner }) {
+export default function CircuitMap({ pts, aspect, cursor, onScrub, onPick, corners: given, activeCorner, noteMarks = [] }) {
   const withGps = gpsPoints(pts)
   // `aspect` as persisted by ingest.js is lonSpan / latSpan — WIDTH over
   // HEIGHT. Every consumer had been computing `height = width * aspect`, which
@@ -66,13 +66,31 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: give
   const start = withGps[0]
   const top = topIdx == null ? null : pts[topIdx]
 
-  function handleMove(e) {
-    if (!onScrub) return
+  function indexAt(e) {
     const box = e.currentTarget.getBoundingClientRect()
     const x = ((e.clientX - box.left) / box.width) * geom.width
     const y = ((e.clientY - box.top) / box.height) * geom.height
-    const i = nearestPointIndex(pts, x, y, geom)
+    return nearestPointIndex(pts, x, y, geom)
+  }
+
+  function handleMove(e) {
+    if (!onScrub) return
+    const i = indexAt(e)
     if (i !== null) onScrub(i)
+  }
+
+  /**
+   * CLICK PICKS A PLACE TO NOTE. Hover is a preview and click is a commitment.
+   *
+   * Without this the only way to choose where a note goes was to leave the
+   * pointer on the right corner — and then move it to the note box, crossing
+   * the rest of the circuit on the way and re-pointing the note each time.
+   * Hovering cannot express "this one", because the pointer must always leave.
+   */
+  function handleClick(e) {
+    if (!onPick) return
+    const i = indexAt(e)
+    if (i !== null) onPick(i)
   }
 
   return (
@@ -81,6 +99,7 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: give
       role="img"
       aria-label="Track map"
       onMouseMove={handleMove}
+      onClick={handleClick}
       style={{ width: '100%', display: 'block', cursor: onScrub ? 'crosshair' : 'default' }}
     >
       {/* The circuit as a road: a dark edge with a lighter surface. Deliberately
@@ -117,8 +136,40 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: give
         // The corner the cursor is inside lights up, so the map and the panel
         // beside it are visibly talking about the same turn.
         const live = b.n === activeCorner
+        /**
+         * THE BADGE IS A CONTROL, and it pins BY IDENTITY rather than by
+         * geometry.
+         *
+         * Badges hang on a leader line 54 px off the racing line and are then
+         * relaxed apart so they do not overlap, which pushes them further
+         * still. A click on one used to fall through to the map's generic
+         * handler, which answers "which trace point is nearest the pointer?" —
+         * and the nearest trace point to a relaxed badge is frequently a
+         * different part of the circuit. `nearestPointIndex` has no distance
+         * threshold, so it always answers, and always plausibly. The result was
+         * that the labelled turn was the one place a driver could not pin.
+         *
+         * The badge already knows which corner it is. Asking geometry to
+         * rediscover that was the mistake, so it now reports its own apex and
+         * stops the event before the map can second-guess it.
+         */
+        const pick = onPick
+          ? (e) => { e.stopPropagation(); onPick(b.apexIdx) }
+          : undefined
         return (
-        <g key={b.n}>
+        <g
+          key={b.n}
+          {...(onPick && {
+            role: 'button',
+            tabIndex: 0,
+            'aria-label': `Note corner ${b.n}`,
+            onClick: pick,
+            onKeyDown: (e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(e) }
+            },
+            style: { cursor: 'pointer' },
+          })}
+        >
           <line x1={b.ax} y1={b.ay} x2={b.bx} y2={b.by} stroke={live ? C.pink : '#3A4046'} strokeWidth="1.5" />
           <circle cx={b.bx} cy={b.by} r={BADGE_R} fill={live ? C.pinkBg : '#2E3338'} stroke={live ? C.pink : '#3A4046'} strokeWidth="1.5" />
           <text x={b.bx} y={b.by + 5} fill={live ? C.pink : C.silver3} fontSize="13" fontWeight="800" textAnchor="middle" fontFamily={font.ui}>
@@ -137,6 +188,39 @@ export default function CircuitMap({ pts, aspect, cursor, onScrub, corners: give
             </text>
           </g>
         </g>
+        )
+      })}
+
+      {/* NOTES, RENDERED ON THE TRACE ITSELF — on the road, not on a badge.
+          The owner's instruction, and it falls out of the anchor design: a note
+          is anchored to a place on the track, so its mark belongs at that place
+          whether or not the detector calls it a corner on this lap. A corner
+          badge would have made the mark depend on our numbering, which is
+          exactly the dependency the distance anchor exists to remove.
+          `idx` is resolved by the caller from the note's `d` against the
+          distance axis, because the trace's 400 points are NOT evenly spaced
+          and `i / (n - 1)` has been wrong since 26 Aug. */}
+      {noteMarks.map((m) => {
+        const p = pts[Math.max(0, Math.min(m.idx ?? 0, pts.length - 1))]
+        if (!p || p.x == null) return null
+        const q = at(p)
+        // A mark LIGHTS UP while the car is at it, the same way a corner badge
+        // does — driven by the identical predicate the notes panel reads with
+        // (`isAtDistance`), resolved by the caller. So passing a note in replay
+        // is visible on the map and in the panel in the same frame.
+        return (
+          <g key={m.key} aria-hidden="true" data-active={m.active ? 'true' : 'false'}>
+            <circle
+              cx={q.x} cy={q.y} r={m.active ? 13 : 9}
+              fill={m.active ? C.pinkBg : C.bg} stroke={C.pink} strokeWidth={m.active ? 3 : 2}
+            />
+            <text
+              x={q.x} y={q.y + (m.active ? 5 : 4)} fill={C.pink}
+              fontSize={m.active ? 13 : 11} fontWeight="800" textAnchor="middle" fontFamily={font.ui}
+            >
+              {m.count > 1 ? m.count : '✎'}
+            </text>
+          </g>
         )
       })}
 
