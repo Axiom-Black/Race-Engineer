@@ -12,7 +12,8 @@ Cost reference (Anthropic API, re-verified 27 Aug 2026, USD per million tokens):
   Opus 5:     $5.00 input / $25.00 output / $0.50 cache-read
   Batch API:  -50% all tokens
   Cache read: -90% vs base input
-  Cache WRITE: +25% vs base input (1.25x) — one-time, per cache window
+  Cache WRITE: 1.25x base input at the 5-minute TTL, 2x at the 1-hour TTL
+               — one-time, per cache window
 
 Two corrections landed 27 Aug 2026 (see WORKING_PLAN §5):
 
@@ -67,7 +68,17 @@ CACHE_READ_COST_PER_MTOK: dict[Model, float] = {
 }
 BATCH_DISCOUNT = 0.50        # Batch API: 50% off all token costs
 CACHE_READ_DISCOUNT = 0.90   # Cache read: 90% off base input cost
-CACHE_WRITE_MULTIPLIER = 1.25  # Cache write: 125% of base input, one-time per window
+# Cache writes are priced by TTL, not by a single rate. Verified 14 Sep 2026
+# against the Anthropic prompt-caching reference: 1.25x base input for the
+# default 5-minute TTL, 2x for the 1-hour TTL.
+#
+# The distinction is load-bearing HERE specifically. A race-engineering run is
+# bursty by nature — a driver uploads after a session, not on a steady cadence —
+# so the gap between runs sharing the curated-library prefix is routinely longer
+# than five minutes. That is exactly the traffic shape the 1-hour TTL exists for,
+# and billing it at 1.25x would understate every cold run by 60%.
+CACHE_WRITE_MULTIPLIER_5M = 1.25   # default ephemeral TTL
+CACHE_WRITE_MULTIPLIER_1H = 2.00   # ttl="1h"; break-even needs 3 reads, not 2
 
 
 # ── Run classes ───────────────────────────────────────────────────
@@ -238,7 +249,14 @@ class TokenUsage:
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0   # tokens served from cache (billed at the cache_read rate)
-    cache_write_tokens: int = 0  # tokens written to cache (billed at 1.25x input, one-time)
+    cache_write_tokens: int = 0  # 5-minute-TTL writes (billed at 1.25x input, one-time)
+    cache_write_1h_tokens: int = 0  # 1-hour-TTL writes (billed at 2x input, one-time)
+    #
+    # Split because the API reports them separately —
+    # `usage.cache_creation.{ephemeral_5m_input_tokens,ephemeral_1h_input_tokens}` —
+    # and they bill at different rates. Collapsing them into one field would make
+    # the cheaper rate the silent default for traffic that is actually using the
+    # dearer one.
 
 
 @dataclass
@@ -277,8 +295,11 @@ def compute_run_cost(
         token_usage.cache_read_tokens / 1_000_000
     ) * CACHE_READ_COST_PER_MTOK[model] * multiplier
     cache_write_cost = (
-        token_usage.cache_write_tokens / 1_000_000
-    ) * input_rate * CACHE_WRITE_MULTIPLIER * multiplier
+        (token_usage.cache_write_tokens / 1_000_000)
+        * input_rate * CACHE_WRITE_MULTIPLIER_5M
+        + (token_usage.cache_write_1h_tokens / 1_000_000)
+        * input_rate * CACHE_WRITE_MULTIPLIER_1H
+    ) * multiplier
 
     total = input_cost + output_cost + cache_read_cost + cache_write_cost
     return RunCost(

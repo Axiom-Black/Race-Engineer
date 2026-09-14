@@ -251,6 +251,38 @@ class TestComputeRunCost:
         batched = compute_run_cost(usage, Model.SONNET, batch=True)
         assert batched.total_usd == pytest.approx(sync.total_usd * 0.5, rel=0.01)
 
+    # ── Cache-write TTL (added 14 Sep 2026) ───────────────────────
+    #
+    # The 27 Aug fix billed every write at 1.25x. That is the 5-minute rate; the
+    # 1-hour TTL bills at 2x. A bursty workload — which a race-engineering run is,
+    # since a driver uploads after a session rather than on a cadence — is exactly
+    # the case the 1-hour TTL exists for, so the single rate understated it.
+
+    def test_one_hour_ttl_write_costs_twice_input(self) -> None:
+        usage = TokenUsage(cache_write_1h_tokens=10_000)
+        fresh = TokenUsage(input_tokens=10_000)
+        got = compute_run_cost(usage, Model.SONNET, batch=False)
+        base = compute_run_cost(fresh, Model.SONNET, batch=False)
+        assert got.cache_write_cost_usd == pytest.approx(base.input_cost_usd * 2.0, rel=0.01)
+
+    def test_one_hour_write_costs_more_than_five_minute_write(self) -> None:
+        """The whole point of splitting the field: the rates differ."""
+        short = compute_run_cost(TokenUsage(cache_write_tokens=10_000), Model.OPUS, batch=False)
+        long = compute_run_cost(TokenUsage(cache_write_1h_tokens=10_000), Model.OPUS, batch=False)
+        assert long.cache_write_cost_usd > short.cache_write_cost_usd
+
+    def test_both_ttls_bill_together(self) -> None:
+        """A request can write at both TTLs; neither may be dropped."""
+        both = compute_run_cost(
+            TokenUsage(cache_write_tokens=10_000, cache_write_1h_tokens=10_000),
+            Model.HAIKU, batch=False,
+        )
+        only_5m = compute_run_cost(TokenUsage(cache_write_tokens=10_000), Model.HAIKU, batch=False)
+        only_1h = compute_run_cost(TokenUsage(cache_write_1h_tokens=10_000), Model.HAIKU, batch=False)
+        assert both.cache_write_cost_usd == pytest.approx(
+            only_5m.cache_write_cost_usd + only_1h.cache_write_cost_usd, rel=1e-9
+        )
+
     # ── Rate card (re-verified 27 Aug 2026) ───────────────────────
 
     def test_sonnet_is_cheaper_than_it_was_on_4_6(self) -> None:
