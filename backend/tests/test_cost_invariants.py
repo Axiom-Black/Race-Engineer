@@ -3,8 +3,8 @@ Ring 2 · G2.2 (model-tiering) and G2.3 (cache) — cost invariants.
 
 These are the margin gates. From the Cost Model:
   - 7 specialists  -> Haiku 4.5   (never Sonnet, never Opus)
-  - Orchestrator + Synthesizer -> Sonnet 4.6 on Standard runs
-  - Opus 4.8 -> Deep-run synthesis ONLY
+  - Orchestrator + Synthesizer -> Sonnet 5 on Standard runs
+  - Opus 5 -> Deep-run synthesis ONLY
   - "A drift to all-Sonnet or all-Opus is the fastest way to erase margin."
   - Second identical run must show >= 60% cached input.
 
@@ -32,8 +32,8 @@ except Exception:  # pragma: no cover
 # --- Canonical role / model vocabulary -----------------------------------
 # Align these strings to whatever your code emits (model IDs, enum values).
 HAIKU = "claude-haiku-4-5"
-SONNET = "claude-sonnet-4-6"
-OPUS = "claude-opus-4-8"
+SONNET = "claude-sonnet-5"
+OPUS = "claude-opus-5"
 
 SPECIALIST_ROLES = {
     "aerodynamics", "tire", "powertrain", "telemetry",
