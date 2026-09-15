@@ -473,6 +473,12 @@ the long run.
 `docs/test-log-iteration-5.md`, appended to after each session. Versioned, no
 build required, and diffable.
 
+**`docs/iteration-5-capture-sheet.md` is the worksheet you actually write in** —
+one pre-stamped block per day, each already carrying what that day is testing and
+which dimension every field feeds, plus a live exit-criteria tracker. It exists
+because the three-minute rule below is not met by a blank template: re-deriving
+the structure at 11pm after a stint is exactly how a capture ritual decays.
+
 Keep it under three minutes to fill in. A capture ritual that takes twenty
 minutes gets skipped by day 4, and then the iteration has no evidence.
 

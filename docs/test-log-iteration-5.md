@@ -1,7 +1,9 @@
 # Iteration 5 — test log
 
 One block per session, appended as they happen. Plan and probe definitions:
-`docs/iteration-5-test-plan.md`.
+`docs/iteration-5-test-plan.md`. **Pre-stamped worksheet to write in while
+testing — one block per day, already carrying what that day is for:
+`docs/iteration-5-capture-sheet.md`.**
 
 | Window | Value |
 | --- | --- |
