@@ -50,25 +50,37 @@ added together as if they were the same kind of number.
 
 | Session | Span | Msgs | Output tok | Cache read | Cost | $/1M out | Cached % |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `1937740f` | 2026-09-02 → 09-15 | 370 | 252,519 | 155,564,291 | **$116.40** | $461 | 97.9% |
+| `1937740f` | 2026-09-02 → 09-15 | 396 | 268,019 | 163,883,606 | **$121.82** | $455 | 98.0% |
 
-<!-- Append one row per session. Generate with:
-     python3 scripts/token_report.py --ledger-row -->
+<!-- One row per session, keyed on the session id. Generate with:
+     python3 scripts/token_report.py --ledger-row
 
-**Running total measured: $116.40.** Against a $1,500 assumed baseline, the
-build to date sits at roughly **$1,616 API-equivalent**, of which 7% is measured
-and 93% is estimate. That ratio improves with every appended row and is itself
+     REPLACE the row for a session already listed; do not append a second one.
+     A session measured mid-flight and again at close is the SAME session, and
+     two rows double-count it. The row above was first written at $116.40 with
+     370 messages and replaced at close — it is one session, not two. -->
+
+**Running total measured: $121.82.** Against a $1,500 assumed baseline, the
+build to date sits at roughly **$1,622 API-equivalent**, of which 8% is measured
+and 92% is estimate. That ratio improves with every appended row and is itself
 worth watching — an estimate that never shrinks is an estimate nobody is testing.
+
+**The report measures a transcript that is still growing.** Two runs four
+minutes apart on this session returned $121.76 and $121.82 — the second run
+billed for reading the first. The drift is fractions of a percent and does not
+matter for the decision the ledger informs, but it means a session's figure is
+**as at the moment it was taken**, never a closed total, and re-running will
+always nudge it up. Take the row once, at close.
 
 ---
 
 ## What the first measurement actually found
 
-**97.9% of every input token was a cache read.** Not fresh context, not new
+**98.0% of every input token was a cache read.** Not fresh context, not new
 files — the conversation re-reading itself. The single number that captures it:
 
-> **Effective cost per 1M output tokens: $461, against a $25 list rate.**
-> An **18.4× context multiplier.**
+> **Effective cost per 1M output tokens: $455, against a $25 list rate.**
+> An **18.2× context multiplier.**
 
 Output is the work. Everything above it is the cost of carrying the conversation
 to the point where the work could be produced.
@@ -77,18 +89,18 @@ to the point where the work could be produced.
 
 | | Cost | Share |
 | --- | --- | --- |
-| Cache read | $77.41 | 67% |
-| Cache write | $32.30 | 28% |
-| Output | $6.31 | 5% |
+| Cache read | $81.89 | 67% |
+| Cache write | $33.16 | 27% |
+| Output | $6.70 | 6% |
 | Fresh input | $0.00 | 0% |
 
-**The thing we actually produced is 5% of the bill.** Two thirds is re-reading.
+**The thing we actually produced is 6% of the bill.** Two thirds is re-reading.
 
 ### Caching is not the problem — it is the only reason this is affordable
 
-Uncached, the same work would have cost **$796.66**. Caching saved **$680.64,
-or 85%**. The 18.4× multiplier is what remains *after* an 85% saving; without
-it the multiplier would be roughly 122×.
+Uncached, the same work would have cost **$842.35**. Caching saved **$720.59,
+or 86%**. The 18.2× multiplier is what remains *after* an 86% saving; without
+it the multiplier would be roughly 126×.
 
 So the lever is not "cache more". It is **carry less**.
 
@@ -98,10 +110,17 @@ So the lever is not "cache more". It is **carry less**.
 
 **1 · Session length is the dominant variable, and it is not close.**
 A long thread pays for its entire history on every turn. This session averaged
-**428,374 input tokens per message** — four hundred thousand tokens re-read to
-produce a few hundred. The 14 Sep spike ($79 of the $116, 248 messages) is the
+**423,115 input tokens per message** — four hundred thousand tokens re-read to
+produce a few hundred. The 14 Sep spike ($79 of the $122, 248 messages) is the
 whole effect in one day: the longer the thread ran, the more each additional
 message cost, regardless of how small it was.
+
+The 15 Sep tail is the same lesson in miniature and worth pricing separately:
+**42 messages cost $19.19**, at **$0.46 each** against the session average of
+$0.31. Those messages did less work than the ones on 3 Sep, which cost $0.21
+each — they were simply carrying more history. Same agent, same model, same kind
+of task, **more than double the unit cost**, entirely because of where in the
+thread they fell.
 
 The fix costs nothing and loses nothing: **split at natural boundaries.** A
 finished feature, a merged PR, a closed blocker. Each new session restarts the
@@ -110,15 +129,15 @@ what `WORKING_PLAN.md` §0/§5 exist for, and is the reason the session ritual
 insists on them.
 
 **2 · The 1-hour cache TTL earned its 2× — check that it still does.**
-3.19M of the 3.26M cache writes were at the 1-hour TTL, costing $31.9 of the
-$32.30. At the 5-minute rate they would have cost $19.9. The premium bought
+3.27M of the 3.34M cache writes were at the 1-hour TTL, costing $32.7 of the
+$33.16. At the 5-minute rate they would have cost $20.5. The premium bought
 cache survival across gaps in a session spanning 13 calendar days with long
-idle periods, and against $680 of savings it was plainly worth it. **In a short,
+idle periods, and against $721 of savings it was plainly worth it. **In a short,
 continuous session it would not be** — the default TTL keeps a busy cache warm
 by itself, and the 1-hour write is then pure premium.
 
 **3 · Model choice is the smallest lever here, not the largest.**
-Output is 5% of spend, so even a free model would cut ~5%. Dropping a tier for
+Output is 6% of spend, so even a free model would cut ~6%. Dropping a tier for
 routine steps is the *last* thing to reach for, not the first — and the tiering
 already specified in `docs/ai-cost-model.md` is about the Phase 2 agent runs,
 which is a different workload with a different shape.
@@ -138,6 +157,12 @@ Not yet answerable — recorded so they are not rediscovered.
 - **Does the multiplier fall when sessions are split?** The prediction is yes,
   and roughly linearly with turn count. Two or three shorter sessions logged
   here will settle it. **Pre-committed so it cannot be graded generously later.**
+  The within-session gradient is already consistent with it — $0.21/message on
+  3 Sep against $0.46 on 15 Sep — but that is the *same* session getting more
+  expensive, not a split one getting cheaper, and it is not the test. The test
+  is the next session's row. **The prediction is that a session opened fresh
+  from the tracker lands nearer $0.21 than $0.46; if it does not, the "split at
+  boundaries" advice in `CLAUDE.md` is wrong and comes out.**
 - **What does a Phase 2 agent run cost against this baseline?** The cost model
   estimates $0.18/run on a warm cache. When the agent wakes, its real runs
   belong in this ledger next to the build cost, because the two are charged to
