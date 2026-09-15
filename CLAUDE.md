@@ -244,6 +244,7 @@ reference implementation is `backend/`. Run commands from those directories.
 | Frontend lint | `cd frontend && npm run lint` | — |
 | Frontend build | `cd frontend && npm run build` | Ring 5 |
 | Frontend dev server | `cd frontend && npm run dev` | — |
+| Session cost report | `python3 scripts/token_report.py` (add `--ledger-row` for the ledger line) | — |
 | Backend unit suite | `cd backend && pip install -e ".[dev]" && python -m pytest tests/unit/ -q` | Ring 1 |
 | RLS / tenancy acceptance | apply `supabase/tests/00_auth_shim.sql`, then `supabase/migrations/*.sql` in filename order, then `supabase/tests/01_rls_acceptance.sql` against a scratch Postgres | Ring 3 |
 
@@ -319,5 +320,17 @@ synthesizer output on the real COTA session. Keep model choice isolated behind
 Start: load the **DE Codex** (governs the work) and read WORKING_PLAN §0/§3 +
 `docs/build-breadcrumbs.md` Part A. Work the smallest increment that leaves
 something a driver would pay for. End: update WORKING_PLAN §0 and §5, append a
-`build-breadcrumbs.md` trail entry (promote anything durable into Part A), run
-the gates, commit. Cut scope before cutting quality.
+`build-breadcrumbs.md` trail entry (promote anything durable into Part A),
+**append the session's cost row to `docs/token-ledger.md`**, run the gates,
+commit. Cut scope before cutting quality.
+
+**The cost row is not optional bookkeeping.** Run
+`python3 scripts/token_report.py --ledger-row` and paste the output into
+`docs/token-ledger.md`. A cloud session gets a fresh container and only the
+*current* transcript is on disk, so a session that ends without its row appended
+can never be counted — the measurement is lost with the container, not merely
+delayed. The first measurement found **97.9% of spend was the conversation
+re-reading itself**, at an 18.4x multiplier over the output it produced, which
+makes **session length the dominant cost variable**: split at natural boundaries
+(a merged PR, a closed blocker) and let the next session restart from the
+tracker rather than from the transcript. That is what §0 and §5 are for.
