@@ -1,10 +1,21 @@
 # Iteration 5 — capture sheet
 
-**This is the thing you write in.** One pre-stamped block per day, already
-carrying what that day is for, so you never re-derive the structure at 11pm
-after a stint. Definitions live in `docs/iteration-5-test-plan.md`; the narrative
-log lives in `docs/test-log-iteration-5.md`. This file is the worksheet between
-them.
+**This is the thing you write in, and this file is CANONICAL.** One pre-stamped
+block per day, already carrying what that day is for, so you never re-derive the
+structure at 11pm after a stint. Definitions live in
+`docs/iteration-5-test-plan.md`; the narrative log lives in
+`docs/test-log-iteration-5.md`. This file is the worksheet between them.
+
+> **There is a printable rendering of this sheet** — one page per day, screen or
+> paper — at <https://claude.ai/artifact/AAPSZTm3qADVRHbCFz9uqp>. It is a
+> *rendering*, not a second source. **Change this file; re-render the page.**
+> Never the other way round, and never both.
+>
+> This repo has already logged what happens otherwise: two copies of a rule is
+> one copy plus a future contradiction, and **the losing copy is whichever an
+> agent reads first** (§5, 3 Sep 2026 — the reason Spec Kit's CLI was refused).
+> The page is convenient precisely because it is downstream. If it ever
+> disagrees with this file, this file wins and the page is stale.
 
 > **Three minutes per block, hard.** Every field below is one line. If a block is
 > taking longer, leave the field blank and write `—` — a blank is data (you
